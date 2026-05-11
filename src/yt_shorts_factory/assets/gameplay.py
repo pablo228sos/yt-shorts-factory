@@ -22,6 +22,7 @@ import logging
 import random
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from yt_shorts_factory.config import GameplayConfig
@@ -65,6 +66,29 @@ def _probe_duration(path: Path) -> float:
     return float(out)
 
 
+def _yt_dlp_cmd() -> list[str]:
+    """Resolve the yt-dlp invocation.
+
+    Prefer running it as a Python module via the current interpreter
+    (`python -m yt_dlp`), because that works whether the installed yt-dlp
+    lives in a venv's `Scripts/`, on the system PATH, or anywhere in
+    between. Fall back to the `yt-dlp` binary if the module isn't
+    importable (e.g. user installed yt-dlp via apt/winget instead of pip).
+    """
+    try:
+        import yt_dlp  # noqa: F401
+
+        return [sys.executable, "-m", "yt_dlp"]
+    except ImportError:
+        binary = shutil.which("yt-dlp")
+        if binary is None:
+            raise RuntimeError(
+                "yt-dlp not available. Run `pip install yt-dlp` or place "
+                "gameplay clips in the cache directory manually."
+            ) from None
+        return [binary]
+
+
 def download_source(
     url: str,
     sources_dir: Path,
@@ -72,16 +96,11 @@ def download_source(
     cookies_from_browser: str | None = None,
 ) -> Path:
     """Pull a single long gameplay video into `sources/` via yt-dlp."""
-    if shutil.which("yt-dlp") is None:
-        raise RuntimeError(
-            "yt-dlp not available. Run `pip install yt-dlp` or place gameplay "
-            f"clips in {sources_dir.parent} manually."
-        )
     sources_dir.mkdir(parents=True, exist_ok=True)
     before = set(_mp4s(sources_dir))
     out_template = str(sources_dir / "%(id)s.%(ext)s")
     cmd = [
-        "yt-dlp",
+        *_yt_dlp_cmd(),
         # 720p is plenty for a 1080-wide vertical crop and keeps downloads small.
         "-f",
         "bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/b",

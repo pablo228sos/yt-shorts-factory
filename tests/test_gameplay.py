@@ -102,20 +102,21 @@ def test_pick_clip_legacy_top_level_clip(tmp_path: Path) -> None:
 def test_download_source_invokes_yt_dlp(tmp_path: Path) -> None:
     sources = tmp_path / "sources"
 
+    captured: dict[str, list[str]] = {}
+
     def fake_run(cmd: list[str], **_kw: object) -> subprocess.CompletedProcess[str]:
-        assert "yt-dlp" in cmd[0]
-        # Simulate yt-dlp dropping a file.
+        captured["cmd"] = list(cmd)
         (sources / "deadbeef.mp4").write_bytes(b"x" * 1024)
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
-    with (
-        patch("yt_shorts_factory.assets.gameplay.shutil.which", return_value="/usr/bin/yt-dlp"),
-        patch("yt_shorts_factory.assets.gameplay.subprocess.run", fake_run),
-    ):
+    with patch("yt_shorts_factory.assets.gameplay.subprocess.run", fake_run):
         out = download_source("https://example.com/v", sources)
 
     assert out.name == "deadbeef.mp4"
     assert out.read_bytes() == b"x" * 1024
+    # Module-style invocation (`python -m yt_dlp`) since yt_dlp is importable.
+    assert captured["cmd"][1:3] == ["-m", "yt_dlp"]
+    assert captured["cmd"][-1] == "https://example.com/v"
 
 
 def test_ensure_sources_skips_cached(tmp_path: Path) -> None:
@@ -145,8 +146,19 @@ def test_ensure_sources_skips_cached(tmp_path: Path) -> None:
 
 
 def test_download_source_raises_without_yt_dlp(tmp_path: Path) -> None:
-    with (
-        patch("yt_shorts_factory.assets.gameplay.shutil.which", return_value=None),
-        pytest.raises(RuntimeError, match="yt-dlp not available"),
-    ):
-        download_source("https://x", tmp_path)
+    """Simulate yt-dlp neither importable nor on PATH."""
+    import sys as _sys
+
+    saved = _sys.modules.pop("yt_dlp", None)
+    _sys.modules["yt_dlp"] = None  # type: ignore[assignment]
+    try:
+        with (
+            patch("yt_shorts_factory.assets.gameplay.shutil.which", return_value=None),
+            pytest.raises(RuntimeError, match="yt-dlp not available"),
+        ):
+            download_source("https://x", tmp_path)
+    finally:
+        if saved is not None:
+            _sys.modules["yt_dlp"] = saved
+        else:
+            _sys.modules.pop("yt_dlp", None)
