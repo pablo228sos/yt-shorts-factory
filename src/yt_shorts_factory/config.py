@@ -57,12 +57,37 @@ class SubtitleStyle(BaseModel):
     vertical_position: float = 0.55  # 0.0 = top, 1.0 = bottom
 
 
+# Long no-copyright gameplay videos commonly used as Shorts B-roll.
+# yt-dlp resolves these on first run; users can override via `sources`.
+# Mixing direct video IDs with `ytsearch:` queries gives a fallback when
+# any specific upload disappears.
+_DEFAULT_GAMEPLAY_SOURCES: list[str] = [
+    "https://www.youtube.com/watch?v=intRX7BRA90",  # Minecraft Parkour [Free to Use]
+    "https://www.youtube.com/watch?v=u7kdVe8q5zs",  # Subway Surfers Gameplay [No Copyright]
+    "ytsearch1:minecraft parkour gameplay no copyright 1 hour",
+    "ytsearch1:subway surfers gameplay no copyright 1 hour",
+]
+
+
 class GameplayConfig(BaseModel):
-    """Background B-roll (Minecraft Parkour / Subway Surfers style)."""
+    """Background B-roll (Minecraft Parkour / Subway Surfers style).
+
+    The pipeline pulls long no-copyright gameplay videos from `sources` via
+    yt-dlp and slices random N-second segments per Short. Operators can
+    override `sources` with their own URLs/queries or point `local_files`
+    at clips they already have.
+    """
 
     cache_dir: Path = Path("cache/gameplay")
-    sources: list[str] = Field(default_factory=list)
+    sources: list[str] = Field(default_factory=lambda: list(_DEFAULT_GAMEPLAY_SOURCES))
     local_files: list[Path] = Field(default_factory=list)
+    segment_seconds: float = 90.0
+    min_source_seconds: float = 180.0
+    max_disk_mb: int = 4096  # cap on total cached source MB
+    # When YouTube rate-limits anonymous access (common on cloud IPs), pass a
+    # browser name here ("firefox", "chrome", "edge") and yt-dlp will reuse
+    # that browser's cookies. Residential IPs usually don't need this.
+    cookies_from_browser: str | None = None
 
 
 class RenderConfig(BaseModel):

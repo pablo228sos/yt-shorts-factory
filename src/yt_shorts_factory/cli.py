@@ -10,6 +10,7 @@ import typer
 from rich.console import Console
 from rich.logging import RichHandler
 
+from yt_shorts_factory.assets import gameplay as gameplay_module
 from yt_shorts_factory.config import (
     GameplayConfig,
     PipelineConfig,
@@ -86,6 +87,29 @@ def generate_cmd(
     console.print(f"Voice:    {result.voice_path}")
     console.print(f"Subs:     {result.subtitles_path}")
     console.print(f"B-roll:   {result.gameplay_path}")
+
+
+@app.command("download-gameplay")
+def download_gameplay_cmd(
+    cache_dir: Path = typer.Option(Path("cache/gameplay"), "--cache-dir"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Pre-download every default gameplay source into the cache.
+
+    Run this once after `pip install -e .` so the first `generate-cmd` doesn't
+    have to wait on yt-dlp. Subsequent runs reuse the cache.
+    """
+    _setup_logging(verbose)
+    cfg = GameplayConfig(cache_dir=cache_dir)
+    console.print(f"Downloading {len(cfg.sources)} gameplay source(s) -> {cache_dir}")
+    available = gameplay_module.ensure_sources(cfg)
+    console.rule("[green]Done")
+    if not available:
+        console.print("[red]No sources downloaded.[/red] Check yt-dlp installation.")
+        raise typer.Exit(1)
+    for p in available:
+        size_mb = p.stat().st_size / (1024 * 1024)
+        console.print(f"  {p.name}  [dim]{size_mb:.1f} MB[/dim]")
 
 
 @app.command("list-stories")

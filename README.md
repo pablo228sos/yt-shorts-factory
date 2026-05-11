@@ -23,28 +23,81 @@ Reddit JSON → text cleaner → Edge TTS → faster-whisper word timings
 | TTS | `tts/edge.py` | `en-US-GuyNeural` via `edge-tts` (free) |
 | Transcription | `transcribe/whisper.py` | `faster-whisper` base model, int8 CPU |
 | Subtitles | `render/subtitles.py` | Karaoke-style .ass, 3 words/chunk, yellow highlight |
-| B-roll | `assets/gameplay.py` | Local files or `yt-dlp`-cached clips |
+| B-roll | `assets/gameplay.py` | Auto-download Minecraft Parkour / Subway Surfers via `yt-dlp`, slice random 90 s segments |
 | Composer | `render/composer.py` | ffmpeg, 1080×1920 @ 30 fps, audio ducking |
 
 ## Install
 
-```bash
-pip install -e ".[dev]"
-sudo apt-get install -y ffmpeg   # or: brew install ffmpeg
+### Windows (one-shot)
+
+From the default Windows Command Prompt (`cmd.exe`):
+
+```cmd
+git clone https://github.com/pablo228sos/yt-shorts-factory.git
+cd yt-shorts-factory
+scripts\install.bat
 ```
 
-You will also want **at least one gameplay clip**. The classic choice is
-public-domain Minecraft Parkour or Subway Surfers gameplay. Drop any
-`.mp4` into `cache/gameplay/` or pass it with `--gameplay path/to/clip.mp4`.
+`install.bat` is a thin wrapper that hands off to `install.ps1` with the
+right execution policy, so you do not need to switch to PowerShell or run
+`Set-ExecutionPolicy` yourself. The installer pulls `ffmpeg` and Python
+3.12 via `winget`, sets up `.venv`, installs the package, and
+pre-downloads the default gameplay sources. Pass `-SkipGameplayDownload`
+to skip the last step.
+
+If you are already in PowerShell you can call the script directly:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\scripts\install.ps1
+```
+
+### Linux / macOS
+
+```bash
+git clone https://github.com/pablo228sos/yt-shorts-factory.git
+cd yt-shorts-factory
+./scripts/install.sh
+```
+
+### Manual
+
+```bash
+pip install -e ".[dev]"
+# Linux:  sudo apt-get install -y ffmpeg
+# macOS:  brew install ffmpeg
+# Windows: winget install --id Gyan.FFmpeg -e
+yt-shorts-factory download-gameplay   # populate cache/gameplay/sources/
+```
+
+**Python 3.11 or 3.12 is required** — `faster-whisper` does not yet ship
+wheels for Python 3.14. If `py -3.12 --version` errors, install it from
+https://www.python.org/downloads/ or via `winget install Python.Python.3.12`.
+
+You can also drop your own `.mp4` into `cache/gameplay/sources/` (or the
+legacy top-level `cache/gameplay/`) and skip the auto-download entirely.
+The pipeline always prefers local files.
+
+**If YouTube blocks `yt-dlp`** with "Sign in to confirm you're not a bot"
+(common on cloud / VPN IPs), point yt-dlp at your logged-in browser:
+
+```json
+{ "gameplay": { "cookies_from_browser": "firefox" } }
+```
+
+or pre-export cookies and configure manually — see
+https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp.
 
 ## Run
 
 ```bash
-# Use a local gameplay clip
+# Hands-off: pulls gameplay automatically if cache is empty.
+yt-shorts-factory generate-cmd --subreddit AmItheAsshole --time-filter day
+
+# Or pin a specific gameplay file.
 yt-shorts-factory generate-cmd \
   --subreddit AmItheAsshole \
-  --time-filter day \
-  --gameplay cache/gameplay/parkour.mp4 \
+  --gameplay cache/gameplay/sources/parkour.mp4 \
   --output-dir out
 ```
 
