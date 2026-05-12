@@ -94,16 +94,27 @@ def download_source(
     sources_dir: Path,
     *,
     cookies_from_browser: str | None = None,
+    preferred_height: int = 1080,
 ) -> Path:
-    """Pull a single long gameplay video into `sources/` via yt-dlp."""
+    """Pull a single long gameplay video into `sources/` via yt-dlp.
+
+    ``preferred_height`` selects the maximum vertical resolution. 1080p is
+    the sweet spot for 1080x1920 Shorts: 1.78x downscale (sharp) instead
+    of 2.7x upscale (blurry) from 720p.
+    """
     sources_dir.mkdir(parents=True, exist_ok=True)
     before = set(_mp4s(sources_dir))
     out_template = str(sources_dir / "%(id)s.%(ext)s")
+    # Prefer ``preferred_height``, accept anything up to it, fall back gracefully.
+    fmt = (
+        f"bv*[height<={preferred_height}][ext=mp4]+ba[ext=m4a]/"
+        f"b[height<={preferred_height}][ext=mp4]/"
+        f"bv*[height<={preferred_height}]+ba/b[height<={preferred_height}]/b"
+    )
     cmd = [
         *_yt_dlp_cmd(),
-        # 720p is plenty for a 1080-wide vertical crop and keeps downloads small.
         "-f",
-        "bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/b",
+        fmt,
         "--merge-output-format",
         "mp4",
         "--no-playlist",
@@ -194,6 +205,7 @@ def ensure_sources(cfg: GameplayConfig) -> list[Path]:
                 url,
                 sources_dir,
                 cookies_from_browser=cfg.cookies_from_browser,
+                preferred_height=cfg.preferred_height,
             )
         except subprocess.CalledProcessError as exc:
             log.warning(

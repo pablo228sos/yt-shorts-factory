@@ -13,7 +13,9 @@
 
 [CmdletBinding()]
 param(
-    [switch]$SkipGameplayDownload
+    [switch]$SkipGameplayDownload,
+    [switch]$SkipSfxSynthesis,
+    [switch]$WithKokoro
 )
 
 $ErrorActionPreference = 'Stop'
@@ -84,9 +86,28 @@ if (-not $SkipGameplayDownload) {
     & $venvPython -m yt_shorts_factory.cli download-gameplay
 }
 
+# ---------- synthesize SFX library ----------
+if (-not $SkipSfxSynthesis) {
+    Write-Host ">> Synthesizing default SFX library (vine boom / ding / whoosh / suspense)..." -ForegroundColor Cyan
+    & $venvPython -m yt_shorts_factory.cli synthesize-sfx
+}
+
+# ---------- optional Kokoro TTS download ----------
+if ($WithKokoro) {
+    Write-Host ">> Installing kokoro-onnx + soundfile..." -ForegroundColor Cyan
+    & $venvPython -m pip install kokoro-onnx soundfile
+    Write-Host ">> Downloading Kokoro model (~310 MB, one-time)..." -ForegroundColor Cyan
+    & $venvPython -m yt_shorts_factory.cli download-tts-models
+}
+
 Write-Host ""
 Write-Host ">> Done!" -ForegroundColor Green
 Write-Host "Activate the venv with:"
 Write-Host "    .\.venv\Scripts\Activate.ps1"
 Write-Host "Then try a generation:"
 Write-Host "    yt-shorts-factory generate-cmd --subreddit AmItheAsshole -v"
+if (-not $WithKokoro) {
+    Write-Host ""
+    Write-Host "To use the high-quality local Kokoro TTS later, run:" -ForegroundColor DarkGray
+    Write-Host "    .\scripts\install.ps1 -WithKokoro -SkipGameplayDownload" -ForegroundColor DarkGray
+}

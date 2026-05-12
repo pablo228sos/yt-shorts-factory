@@ -1,12 +1,17 @@
-"""Glue together gameplay B-roll, narration audio, and burned-in subtitles
-into a single 1080x1920 mp4 using ffmpeg.
+"""Glue together gameplay B-roll, narration audio, SFX, optional music,
+and burned-in subtitles into a single 1080x1920 mp4 using ffmpeg.
 
-Filter graph overview:
-  [0:v] crop+scale to 1080x1920, trim to narration length -> [bg]
-  [bg]  burn .ass subtitles                                -> [v]
-  [0:a] lower gameplay volume by `duck_music_db`           -> [bgm]
-  [1:a] voiceover (left as-is)                             -> [vo]
-  [bgm][vo] amix -> [a]
+Filter graph overview (worst case, music + SFX):
+  [0:v] scale=W:H:lanczos, crop, fps -> [bg] -> subtitles -> [v]
+  [1:a] atempo=speedup, apad                 -> [vo_raw] -> asplit -> [vo][sc]
+  [2:a] aloop, atrim, volume                 -> [m_raw]
+  [m_raw][sc] sidechaincompress              -> [music]
+  [3:a] adelay,volume                        -> [sfx0]
+  [4:a] adelay,volume                        -> [sfx1]
+  [0:a] volume=duck_music_db                 -> [bgm]
+  [vo][music][sfx0..n][bgm] amix=normalize=0 -> [a]
+
+If music or SFX are absent the corresponding legs are simply dropped.
 """
 
 from __future__ import annotations
@@ -16,6 +21,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from yt_shorts_factory.assets.sfx import SfxClip
 from yt_shorts_factory.config import RenderConfig
 
 
@@ -51,6 +57,94 @@ def _escape_subtitles_path(p: Path) -> str:
     return s
 
 
+def _clamp_atempo(speedup: float) -> list[float]:
+    """ffmpeg's atempo filter accepts 0.5..2.0 per instance; chain them
+    for ratios outside that range."""
+    if speedup <= 0:
+        return [1.0]
+    ratios: list[float] = []
+    remaining = speedup
+    while remaining > 2.0:
+        ratios.append(2.0)
+        remaining /= 2.0
+    while remaining < 0.5:
+        ratios.append(0.5)
+        remaining /= 0.5
+    ratios.append(remaining)
+    return ratios
+
+
+def _build_filter_graph(
+    *,
+    cfg: RenderConfig,
+    subs_arg: str,
+    speedup: float,
+    duration_s: float,
+    voice_idx: int,
+    music_idx: int | None,
+    sfx_clips: list[tuple[int, SfxClip]],
+    intro_padding_s: float,
+    music_base_db: float,
+    music_sidechain: bool,
+) -> str:
+    """Assemble the -filter_complex string."""
+    scale_flags = cfg.scale_flags
+    vf_parts = [
+        f"[0:v]scale={cfg.width}:{cfg.height}:"
+        f"force_original_aspect_ratio=increase:flags={scale_flags},"
+        f"crop={cfg.width}:{cfg.height},setsar=1,fps={cfg.fps}[bg]",
+        f"[bg]subtitles='{subs_arg}'[v]",
+    ]
+
+    audio_parts: list[str] = []
+
+    # Voice leg with atempo chain + outro pad. Split into main + sidechain copy.
+    atempo_chain = ",".join(f"atempo={r}" for r in _clamp_atempo(speedup))
+    audio_parts.append(
+        f"[{voice_idx}:a]{atempo_chain},apad=pad_dur={cfg.outro_padding_s}[vo_raw]"
+    )
+    audio_parts.append("[vo_raw]asplit=2[vo][vo_sc]")
+
+    mix_labels: list[str] = ["[vo]"]
+
+    # SFX legs.
+    for i, (input_idx, clip) in enumerate(sfx_clips):
+        # adelay wants ms; pad both channels (we forced mono on synth, but
+        # apply :all=1 to be safe in case the input is stereo).
+        delay_ms = max(0, int((clip.start_s + intro_padding_s) * 1000))
+        audio_parts.append(
+            f"[{input_idx}:a]adelay={delay_ms}:all=1,volume={clip.gain_db}dB[sfx{i}]"
+        )
+        mix_labels.append(f"[sfx{i}]")
+
+    # Music leg with optional sidechain ducking.
+    if music_idx is not None:
+        audio_parts.append(
+            f"[{music_idx}:a]aloop=loop=-1:size=2147483647,"
+            f"atrim=duration={duration_s:.3f},"
+            f"volume={music_base_db}dB[m_raw]"
+        )
+        if music_sidechain:
+            audio_parts.append(
+                "[m_raw][vo_sc]sidechaincompress="
+                "threshold=0.05:ratio=10:attack=20:release=300:level_sc=1[music]"
+            )
+        else:
+            audio_parts.append("[m_raw]anull[music]")
+        mix_labels.append("[music]")
+
+    # Gameplay's own audio always ducked low.
+    audio_parts.append(f"[0:a]volume={cfg.duck_music_db}dB[bgm]")
+    mix_labels.append("[bgm]")
+
+    audio_parts.append(
+        f"{''.join(mix_labels)}amix=inputs={len(mix_labels)}:"
+        f"duration=longest:dropout_transition=0:normalize=0[a]"
+    )
+
+    return ";".join(vf_parts + audio_parts)
+
+
 def compose(
     *,
     gameplay_path: Path,
@@ -58,8 +152,13 @@ def compose(
     subtitles_path: Path,
     output_path: Path,
     cfg: RenderConfig,
+    speedup: float = 1.0,
+    sfx_clips: list[SfxClip] | None = None,
+    music_path: Path | None = None,
+    music_base_db: float = -22.0,
+    music_sidechain: bool = True,
 ) -> Path:
-    """Render the final Short. Returns `output_path` on success."""
+    """Render the final Short. Returns ``output_path`` on success."""
     _ensure_ffmpeg()
     if not gameplay_path.exists():
         raise FileNotFoundError(gameplay_path)
@@ -68,34 +167,52 @@ def compose(
     if not subtitles_path.exists():
         raise FileNotFoundError(subtitles_path)
 
-    duration = _ffprobe_duration(voice_path) + cfg.intro_padding_s + cfg.outro_padding_s
+    raw_voice_duration = _ffprobe_duration(voice_path)
+    voice_duration = raw_voice_duration / max(0.1, speedup)
+    duration = voice_duration + cfg.intro_padding_s + cfg.outro_padding_s
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     subs_arg = _escape_subtitles_path(subtitles_path)
-    # Center-crop horizontally to a 9:16 frame then scale to target size.
-    # `force_original_aspect_ratio=increase` ensures we always cover.
-    vf = (
-        f"[0:v]scale={cfg.width}:{cfg.height}:force_original_aspect_ratio=increase,"
-        f"crop={cfg.width}:{cfg.height},setsar=1,fps={cfg.fps}[bg];"
-        f"[bg]subtitles='{subs_arg}'[v];"
-        f"[0:a]volume={cfg.duck_music_db}dB[bgm];"
-        f"[1:a]apad=pad_dur={cfg.outro_padding_s}[vo];"
-        f"[bgm][vo]amix=inputs=2:duration=longest:dropout_transition=0[a]"
+
+    # Build ffmpeg input args + assign indices.
+    inputs: list[str] = ["-stream_loop", "-1", "-i", str(gameplay_path)]
+    voice_idx = 1
+    inputs += ["-itsoffset", str(cfg.intro_padding_s), "-i", str(voice_path)]
+
+    sfx_clips = sfx_clips or []
+    music_idx: int | None = None
+    next_idx = 2
+
+    # Music goes first (lower SFX indices keep filter strings short) but
+    # order in inputs doesn't matter for correctness — only the index does.
+    if music_path is not None and music_path.exists():
+        inputs += ["-stream_loop", "-1", "-i", str(music_path)]
+        music_idx = next_idx
+        next_idx += 1
+
+    indexed_sfx: list[tuple[int, SfxClip]] = []
+    for clip in sfx_clips:
+        if not clip.path.exists():
+            continue
+        inputs += ["-i", str(clip.path)]
+        indexed_sfx.append((next_idx, clip))
+        next_idx += 1
+
+    filter_graph = _build_filter_graph(
+        cfg=cfg,
+        subs_arg=subs_arg,
+        speedup=speedup,
+        duration_s=duration,
+        voice_idx=voice_idx,
+        music_idx=music_idx,
+        sfx_clips=indexed_sfx,
+        intro_padding_s=cfg.intro_padding_s,
+        music_base_db=music_base_db,
+        music_sidechain=music_sidechain,
     )
 
-    cmd = [
-        "ffmpeg",
-        "-y",
-        "-stream_loop",
-        "-1",
-        "-i",
-        str(gameplay_path),
-        "-itsoffset",
-        str(cfg.intro_padding_s),
-        "-i",
-        str(voice_path),
-        "-filter_complex",
-        vf,
+    cmd: list[str] = ["ffmpeg", "-y", *inputs, "-filter_complex", filter_graph]
+    cmd += [
         "-map",
         "[v]",
         "-map",
@@ -105,7 +222,9 @@ def compose(
         "-c:v",
         "libx264",
         "-preset",
-        "veryfast",
+        cfg.preset,
+        "-crf",
+        str(cfg.crf),
         "-b:v",
         cfg.video_bitrate,
         "-pix_fmt",

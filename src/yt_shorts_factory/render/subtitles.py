@@ -4,8 +4,13 @@ r"""Generate Advanced SubStation Alpha (.ass) subtitles with TikTok-style
 Approach: group consecutive words into small chunks (default 1-3 words),
 emit one ASS Dialogue line per chunk. The chunk appears from the start of
 its first word to the end of its last word, large-font, centered around
-`vertical_position`, white text + black outline. The current word inside
-the chunk is highlighted in yellow.
+``style.vertical_position``, white text + black outline. The current
+word inside the chunk is highlighted in yellow.
+
+We also support ALL CAPS rendering and a font-fallback list. libass picks
+the first font it can find on the system, so listing ``Bebas Neue, Impact,
+Arial Black`` gracefully degrades on a fresh Windows install (Impact ships
+with Windows) while still using Bebas Neue when present.
 
 This avoids needing libass karaoke `\k` tags and works reliably with
 ffmpeg's `subtitles` filter on any system.
@@ -34,7 +39,7 @@ def _chunk_words(words: list[Word], max_per_chunk: int) -> list[list[Word]]:
     current: list[Word] = []
     for word in words:
         current.append(word)
-        ends_sentence = word.text.endswith((".", "!", "?"))
+        ends_sentence = word.text.endswith((".", "!", "?", ","))
         if len(current) >= max_per_chunk or ends_sentence:
             chunks.append(current)
             current = []
@@ -43,8 +48,23 @@ def _chunk_words(words: list[Word], max_per_chunk: int) -> list[list[Word]]:
     return chunks
 
 
+def _format_font_for_ass(style: SubtitleStyle) -> str:
+    """libass accepts a comma-separated list of preferred fonts."""
+    fonts = [style.font, *style.font_fallback]
+    # Dedupe while preserving order.
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for f in fonts:
+        if f and f not in seen:
+            seen.add(f)
+            uniq.append(f)
+    return ",".join(uniq)
+
+
 def _build_header(style: SubtitleStyle, render: RenderConfig) -> str:
     margin_v = int(render.height * (1.0 - style.vertical_position))
+    bold = -1 if style.bold else 0
+    fontname = _format_font_for_ass(style)
     return (
         "[Script Info]\n"
         "ScriptType: v4.00+\n"
@@ -58,9 +78,9 @@ def _build_header(style: SubtitleStyle, render: RenderConfig) -> str:
         "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
         "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        f"Style: Pop,{style.font},{style.font_size},{style.primary_color},"
+        f"Style: Pop,{fontname},{style.font_size},{style.primary_color},"
         f"{style.primary_color},{style.outline_color},&H00000000,"
-        f"-1,0,0,0,100,100,0,0,1,{style.outline_width},{style.shadow},"
+        f"{bold},0,0,0,100,100,0,0,1,{style.outline_width},{style.shadow},"
         f"5,40,40,{margin_v},1\n"
         "\n"
         "[Events]\n"
@@ -69,13 +89,25 @@ def _build_header(style: SubtitleStyle, render: RenderConfig) -> str:
     )
 
 
+def _transform_text(text: str, style: SubtitleStyle) -> str:
+    if style.uppercase:
+        return text.upper()
+    return text
+
+
 def _render_chunk_text(chunk: list[Word], highlight_idx: int, style: SubtitleStyle) -> str:
     parts: list[str] = []
     for i, word in enumerate(chunk):
+        token = _transform_text(word.text, style)
         if i == highlight_idx:
-            parts.append(rf"{{\c{style.highlight_color}}}{word.text}{{\c{style.primary_color}}}")
+            # Active word: yellow color + slight scale pop ("\fscx115\fscy115").
+            parts.append(
+                rf"{{\c{style.highlight_color}\fscx115\fscy115}}"
+                rf"{token}"
+                rf"{{\c{style.primary_color}\fscx100\fscy100}}"
+            )
         else:
-            parts.append(word.text)
+            parts.append(token)
     return " ".join(parts)
 
 

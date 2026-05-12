@@ -4,9 +4,13 @@
 set -euo pipefail
 
 skip_gameplay=0
+skip_sfx=0
+with_kokoro=0
 for arg in "$@"; do
     case "$arg" in
         --skip-gameplay) skip_gameplay=1 ;;
+        --skip-sfx) skip_sfx=1 ;;
+        --with-kokoro) with_kokoro=1 ;;
         *) echo "Unknown flag: $arg" >&2; exit 1 ;;
     esac
 done
@@ -63,6 +67,20 @@ if [ "$skip_gameplay" -eq 0 ]; then
     yt-shorts-factory download-gameplay
 fi
 
+# ---------- synthesize SFX library ----------
+if [ "$skip_sfx" -eq 0 ]; then
+    step "Synthesizing default SFX library (vine boom / ding / whoosh / suspense)"
+    yt-shorts-factory synthesize-sfx
+fi
+
+# ---------- optional Kokoro TTS download ----------
+if [ "$with_kokoro" -eq 1 ]; then
+    step "Installing kokoro-onnx + soundfile"
+    pip install kokoro-onnx soundfile
+    step "Downloading Kokoro model (~310 MB, one-time)"
+    yt-shorts-factory download-tts-models
+fi
+
 cat <<'EOF'
 
 >> Done!
@@ -71,3 +89,7 @@ Activate the venv with:
 Then try a generation:
     yt-shorts-factory generate-cmd --subreddit AmItheAsshole -v
 EOF
+if [ "$with_kokoro" -eq 0 ]; then
+    printf "\nTo enable the high-quality local Kokoro TTS later:\n"
+    printf "    ./scripts/install.sh --with-kokoro --skip-gameplay\n"
+fi

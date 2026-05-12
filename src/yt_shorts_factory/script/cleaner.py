@@ -139,7 +139,11 @@ def clean_story(text: str, *, censor: bool = True) -> str:
 
 
 def make_hook(title: str) -> str:
-    """A first-line hook that boosts retention in the first 3 seconds."""
+    """Legacy first-line hook generator.
+
+    Kept for backwards compatibility; new code should use
+    ``yt_shorts_factory.script.hook.build_hook`` which is content-aware.
+    """
     title = title.strip().rstrip(".?!")
     if not title:
         return ""
