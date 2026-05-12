@@ -58,12 +58,13 @@ def generate_cmd(
     tts_backend: str = typer.Option(
         "edge", "--tts", help="TTS backend: edge (default, free, online) or kokoro (local)."
     ),
-    speedup: float = typer.Option(
-        1.18,
+    speedup: float | None = typer.Option(
+        None,
         "--speedup",
         help=(
             "atempo speedup applied to the voice. 1.0 = no change. "
-            "1.18 is the typical brainrot pace."
+            "Default (unset) lets the niche profile decide (~1.05-1.22). "
+            "Explicitly setting this overrides the niche default."
         ),
     ),
     niche: str | None = typer.Option(
@@ -114,13 +115,22 @@ def generate_cmd(
     if tts_backend not in ("edge", "kokoro"):
         raise typer.BadParameter(f"--tts must be 'edge' or 'kokoro', got {tts_backend!r}")
     backend: TtsBackend = "kokoro" if tts_backend == "kokoro" else "edge"
+
+    # Track which fields the user explicitly set so the niche profile
+    # doesn't silently overwrite them.
+    user_overrides: set[str] = set()
+    if voice is not None:
+        user_overrides.add("voice")
+    if speedup is not None:
+        user_overrides.add("audio_speedup")
+
     cfg.tts = TtsConfig(
         backend=backend,
         voice=voice if voice is not None else cfg.tts.voice,
         rate=cfg.tts.rate,
         pitch=cfg.tts.pitch,
         volume=cfg.tts.volume,
-        audio_speedup=speedup,
+        audio_speedup=speedup if speedup is not None else cfg.tts.audio_speedup,
     )
 
     if niche and niche.lower() == "none":
@@ -160,7 +170,7 @@ def generate_cmd(
         )
     cfg.output_dir = output_dir
 
-    result = generate(cfg)
+    result = generate(cfg, user_overrides=user_overrides)
     console.rule("[green]Done")
     console.print(f"Story:    [bold]{result.story.title}[/bold]")
     console.print(f"Score:    {result.story.score}")

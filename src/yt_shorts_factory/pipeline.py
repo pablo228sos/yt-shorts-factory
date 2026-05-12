@@ -80,6 +80,7 @@ def generate(
     *,
     story: reddit_source.RedditStory | None = None,
     rng: random.Random | None = None,
+    user_overrides: set[str] | None = None,
 ) -> GenerationResult:
     """Run the full pipeline. Returns paths to all produced artifacts."""
     rng = rng or random.Random()
@@ -106,10 +107,15 @@ def generate(
     elif cfg.niche:
         profile = niche_profiles.resolve_profile(cfg.niche)
     if profile is not None:
-        niche_profiles.apply_profile(cfg, profile)
+        niche_profiles.apply_profile(cfg, profile, overrides=user_overrides)
         niche_name = profile.name
-        log.info("Applied niche profile: %s (voice=%s, mood=%s)",
-                 profile.name, profile.voice, profile.music_mood)
+        log.info(
+            "Applied niche profile: %s (voice=%s, mood=%s), respecting user overrides: %s",
+            profile.name,
+            cfg.tts.voice,
+            profile.music_mood,
+            sorted(user_overrides) if user_overrides else "(none)",
+        )
 
     slug = _slugify(story.title)
     work_subdir = cfg.work_dir / f"{story.id}_{slug}"

@@ -55,7 +55,6 @@ NICHE_PROFILES: dict[str, NicheProfile] = {
             "maliciouscompliance",
             "entitledparents",
             "amioverreacting",
-            "petyrevenge",
             "prorevenge",
         ),
     ),
@@ -143,22 +142,39 @@ def resolve_profile(name: str | None) -> NicheProfile | None:
     """
     if not name:
         return None
-    key = name.strip().lower().lstrip("r/").lstrip("/")
+    key = name.strip().lower().removeprefix("r/").lstrip("/")
     if not key:
         return None
     return _ALIAS_INDEX.get(key)
 
 
-def apply_profile(cfg: PipelineConfig, profile: NicheProfile) -> PipelineConfig:
-    """Overlay ``profile`` onto ``cfg`` in place, returning ``cfg``."""
-    # Voice: respect explicit user override but bump default if untouched.
-    cfg.tts.voice = profile.voice
-    cfg.tts.audio_speedup = profile.audio_speedup
-    cfg.hook.style = profile.hook_style
-    # SFX intensity scales the dB gains (subtle/loud).
-    cfg.sfx.vine_boom_db = -4.0 / max(0.1, profile.sfx_intensity)
-    cfg.sfx.ding_db = -8.0 / max(0.1, profile.sfx_intensity)
-    cfg.sfx.whoosh_db = -12.0 / max(0.1, profile.sfx_intensity)
+def apply_profile(
+    cfg: PipelineConfig,
+    profile: NicheProfile,
+    *,
+    overrides: set[str] | None = None,
+) -> PipelineConfig:
+    """Overlay ``profile`` onto ``cfg`` in place, returning ``cfg``.
+
+    ``overrides`` lists field names the caller has explicitly set and that
+    the profile must NOT overwrite. Supported keys:
+
+      - ``voice``         -> ``cfg.tts.voice``
+      - ``audio_speedup`` -> ``cfg.tts.audio_speedup``
+      - ``hook_style``    -> ``cfg.hook.style``
+      - ``sfx_intensity`` -> ``cfg.sfx.{vine_boom,ding,whoosh}_db``
+    """
+    overrides = overrides or set()
+    if "voice" not in overrides:
+        cfg.tts.voice = profile.voice
+    if "audio_speedup" not in overrides:
+        cfg.tts.audio_speedup = profile.audio_speedup
+    if "hook_style" not in overrides:
+        cfg.hook.style = profile.hook_style
+    if "sfx_intensity" not in overrides:
+        cfg.sfx.vine_boom_db = -4.0 / max(0.1, profile.sfx_intensity)
+        cfg.sfx.ding_db = -8.0 / max(0.1, profile.sfx_intensity)
+        cfg.sfx.whoosh_db = -12.0 / max(0.1, profile.sfx_intensity)
     return cfg
 
 

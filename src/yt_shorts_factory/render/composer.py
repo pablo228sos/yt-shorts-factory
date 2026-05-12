@@ -98,12 +98,18 @@ def _build_filter_graph(
 
     audio_parts: list[str] = []
 
-    # Voice leg with atempo chain + outro pad. Split into main + sidechain copy.
+    # Voice leg with atempo chain + outro pad. Only split into a sidechain
+    # copy when music ducking is actually going to consume it; ffmpeg errors
+    # out on any named output pad that's never connected downstream.
     atempo_chain = ",".join(f"atempo={r}" for r in _clamp_atempo(speedup))
     audio_parts.append(
         f"[{voice_idx}:a]{atempo_chain},apad=pad_dur={cfg.outro_padding_s}[vo_raw]"
     )
-    audio_parts.append("[vo_raw]asplit=2[vo][vo_sc]")
+    needs_sidechain = music_idx is not None and music_sidechain
+    if needs_sidechain:
+        audio_parts.append("[vo_raw]asplit=2[vo][vo_sc]")
+    else:
+        audio_parts.append("[vo_raw]anull[vo]")
 
     mix_labels: list[str] = ["[vo]"]
 
@@ -124,7 +130,7 @@ def _build_filter_graph(
             f"atrim=duration={duration_s:.3f},"
             f"volume={music_base_db}dB[m_raw]"
         )
-        if music_sidechain:
+        if needs_sidechain:
             audio_parts.append(
                 "[m_raw][vo_sc]sidechaincompress="
                 "threshold=0.05:ratio=10:attack=20:release=300:level_sc=1[music]"

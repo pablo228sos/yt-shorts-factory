@@ -50,6 +50,30 @@ def test_build_filter_graph_minimal() -> None:
     assert "subtitles='subs.ass'" in graph
     # amix inputs = voice + gameplay = 2
     assert "amix=inputs=2" in graph
+    # No music => no sidechain copy of the voice; emitting [vo_sc] would
+    # leave a dangling pad and ffmpeg would reject the graph.
+    assert "[vo_sc]" not in graph
+    assert "sidechaincompress" not in graph
+
+
+def test_build_filter_graph_with_music_no_sidechain_omits_vo_sc() -> None:
+    """Even with music present, [vo_sc] must only appear when sidechain is on."""
+    graph = _build_filter_graph(
+        cfg=RenderConfig(),
+        subs_arg="subs.ass",
+        speedup=1.0,
+        duration_s=60.0,
+        voice_idx=1,
+        music_idx=2,
+        sfx_clips=[],
+        intro_padding_s=0.15,
+        music_base_db=-22.0,
+        music_sidechain=False,
+    )
+    assert "[vo_sc]" not in graph
+    assert "sidechaincompress" not in graph
+    # amix inputs = voice + music + gameplay = 3
+    assert "amix=inputs=3" in graph
 
 
 def test_build_filter_graph_with_sfx_and_music() -> None:
