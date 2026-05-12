@@ -102,9 +102,11 @@ if ($WithKokoro) {
 
 Write-Host ""
 Write-Host ">> Done!" -ForegroundColor Green
-Write-Host "Activate the venv with:"
-Write-Host "    .\.venv\Scripts\Activate.ps1"
-Write-Host "Then try a generation:"
+Write-Host "Activate the venv:" -ForegroundColor Cyan
+Write-Host "  cmd.exe       :   .venv\Scripts\activate.bat"
+Write-Host "  PowerShell    :   .\.venv\Scripts\Activate.ps1"
+Write-Host ""
+Write-Host "Then try a generation:" -ForegroundColor Cyan
 Write-Host "    yt-shorts-factory generate-cmd --subreddit AmItheAsshole -v"
 if (-not $WithKokoro) {
     Write-Host ""
