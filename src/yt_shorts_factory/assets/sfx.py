@@ -87,8 +87,10 @@ def _run_ffmpeg(filter_expr: str, out_path: Path) -> None:
 
 def _synth_vine_boom(out_path: Path) -> None:
     # Classic "vine boom": 50 Hz sine with exponential decay over ~1.2 s.
+    # NB: aevalsrc's expression option is ``exprs`` (plural), not ``expr``.
+    # The singular form silently broke synthesis on every supported ffmpeg.
     expr = (
-        "aevalsrc=expr='sin(2*PI*50*t)*exp(-3.0*t)':d=1.2:s=44100,"
+        "aevalsrc=exprs='sin(2*PI*50*t)*exp(-3.0*t)':d=1.2:s=44100,"
         "volume=2.5"
     )
     _run_ffmpeg(expr, out_path)
@@ -97,7 +99,7 @@ def _synth_vine_boom(out_path: Path) -> None:
 def _synth_ding(out_path: Path) -> None:
     # Two short 1.5 kHz pings with a tiny gap. Bright "notification" feel.
     expr = (
-        "aevalsrc=expr='sin(2*PI*1500*t)*exp(-8*t) + "
+        "aevalsrc=exprs='sin(2*PI*1500*t)*exp(-8*t) + "
         "0.5*sin(2*PI*1500*(t-0.18))*exp(-8*(t-0.18))*lt(t\\,0.4)':d=0.5:s=44100"
     )
     _run_ffmpeg(expr, out_path)
