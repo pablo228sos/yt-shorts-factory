@@ -24,47 +24,47 @@ for what already works.
 - ✅ Windows + Linux + macOS installers
 - ✅ CI: ruff + mypy strict + pytest
 
-## Stage 1 — Quality pass (PR #4) ✅ / 🔧
+## Stage 1 — Quality pass (PR #4) ✅
 
 - ✅ 1080p gameplay source with lanczos downscale (sharp)
 - ✅ Hook rewriter (drama / question / verdict / cliffhanger)
-- ✅ Kokoro-onnx local TTS backend (opt-in)
+- ✅ Kokoro-onnx local TTS backend
 - ✅ Bebas Neue ALL CAPS + yellow highlight + scale pop
 - ✅ SFX engine (vine boom / ding / whoosh / suspense)
 - ✅ Music bed with sidechain ducking
-- ✅ Niche profiles (drama / horror / comedy / relationship / everyday)
+- ✅ Niche profiles (drama / horror / comedy / relationship / confession / everyday)
 - ✅ Niche profile respects CLI overrides
 - ✅ ffmpeg filter-graph: dangling-pad bug fixed
-- 🔧 SFX `aevalsrc` synth bug fix (option is `exprs` not `expr`)
-- 🔧 Subtitle absolute `\pos(x,y)` for deterministic vertical placement
-- 🔧 Default `audio_speedup=1.0` (no speedup) across all niches
-- 🔧 Invalidate stale 720p cached segments on source-quality bump
+- ✅ SFX `aevalsrc` synth bug fix (option is `exprs` not `expr`)
+- ✅ Subtitle absolute `\pos(x,y)` for deterministic vertical placement (centered, regardless of libass build)
+- ✅ Default `audio_speedup=1.0` (no speedup) across all niches — user pref: clarity + intonation
+- ✅ Invalidate stale 720p cached segments on source-quality bump
 
-## Stage 2 — Retention + variety (this PR, continues) 🔧
+## Stage 2 — Retention + variety (PR #4 continued) ✅
 
-- 🔧 **Kokoro as default backend** when installed (Edge fallback)
-- 🔧 **Auto-pick voice gender** from story POV — heuristic on text
+- ✅ **Kokoro as default backend** with auto-fallback to Edge when model files are missing
+- ✅ **Auto-pick voice gender** from story POV — heuristic on text
   ("my husband / wife", "I'm a 24F / 32M", "as a woman / man") picks
-  female or male Edge / Kokoro voice automatically
-- 🔧 **Per-video variety** — `cache/used_segments.json` tracks last-N
-  used B-roll segments; the picker round-robins so two consecutive
-  videos never share the same background slice
-- 🔧 **Split-screen ASMR strip** — top 50% gameplay, bottom 50%
-  satisfying / cooking / soap-cutting / sand-drawing / power-washing.
-  Subtitles centered between halves
-- 🔧 **ASMR B-roll engine** — `cache/asmr/<category>/` with `cooking`,
-  `soap`, `sand`, `power-wash`. Auto-download via yt-dlp or
-  user-provided
-- 🔧 **Wider edgy subreddit defaults** — BORU, EntitledParents,
-  JustNoMIL, raisedbynarcissists, MaliciousCompliance, TwoSentenceHorror,
-  confession, LetsNotMeet, AmIOverreacting, cheating_stories,
-  relationship_advice
-- 🔧 **Fresh-time-window adaptive search** — try `hour` first, fall
-  through `day` / `week` until min-score candidate found
-- 🔧 **SQLite dedup** — `cache/processed.sqlite` records every
+  female or male Edge / Kokoro voice automatically; CLI `--voice` wins
+- ✅ **Per-video variety** — process-local memory of last-5 B-roll picks;
+  gameplay + ASMR pickers each avoid back-to-back repeats
+- ✅ **Split-screen ASMR strip** — top: 1080×960 gameplay; bottom: 1080×960
+  ASMR / cooking / soap-cutting / kinetic-sand / glass-cutting (muted)
+- ✅ **ASMR B-roll engine** — `cache/asmr/` separate from gameplay cache;
+  shared yt-dlp pipeline, `download-gameplay --kind asmr` CLI
+- ✅ **Wider edgy subreddit defaults** — 18-item rotation pool (AITA,
+  AITAH, AmIOverreacting, EntitledParents, MaliciousCompliance,
+  ProRevenge, JustNoMIL, raisedbynarcissists, relationship_advice,
+  survivinginfidelity, nosleep, shortscarystories, TwoSentenceHorror,
+  LetsNotMeet, confession, offmychest, TrueOffMyChest,
+  BestofRedditorUpdates)
+- ✅ **Fresh-content mixing** — `include_fresh=True` pulls `/top` AND
+  `/new` and merges, so the pool always contains last-hour posts
+- ✅ **SQLite dedup** — `cache/processed.sqlite` records every
   post_id rendered; batch mode never picks a repeat
-- 🔧 **Batch mode** — `yt-shorts-factory batch --count N` rotates
-  through multi-subreddit list, dedups, tolerates per-video errors
+- ✅ **Batch mode** — `yt-shorts-factory batch --count N --subreddits a,b,c`
+  rotates through multi-subreddit list, dedups, tolerates per-video errors,
+  sleep between iterations to respect Reddit rate limits
 
 ## Stage 3 — Premium TTS + LLM hooks (next PR) 📋
 

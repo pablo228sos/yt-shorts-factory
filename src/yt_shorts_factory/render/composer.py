@@ -86,15 +86,36 @@ def _build_filter_graph(
     intro_padding_s: float,
     music_base_db: float,
     music_sidechain: bool,
+    asmr_idx: int | None = None,
+    asmr_height: int = 0,
 ) -> str:
-    """Assemble the -filter_complex string."""
+    """Assemble the -filter_complex string.
+
+    When ``asmr_idx`` is set the video is rendered as a vertical
+    split-screen: the top ``cfg.height - asmr_height`` pixels show the
+    gameplay B-roll and the bottom ``asmr_height`` pixels show the muted
+    ASMR clip. Subtitles are burned over the combined frame.
+    """
     scale_flags = cfg.scale_flags
-    vf_parts = [
-        f"[0:v]scale={cfg.width}:{cfg.height}:"
-        f"force_original_aspect_ratio=increase:flags={scale_flags},"
-        f"crop={cfg.width}:{cfg.height},setsar=1,fps={cfg.fps}[bg]",
-        f"[bg]subtitles='{subs_arg}'[v]",
-    ]
+    if asmr_idx is not None and asmr_height > 0:
+        top_h = cfg.height - asmr_height
+        vf_parts = [
+            f"[0:v]scale={cfg.width}:{top_h}:"
+            f"force_original_aspect_ratio=increase:flags={scale_flags},"
+            f"crop={cfg.width}:{top_h},setsar=1,fps={cfg.fps}[top]",
+            f"[{asmr_idx}:v]scale={cfg.width}:{asmr_height}:"
+            f"force_original_aspect_ratio=increase:flags={scale_flags},"
+            f"crop={cfg.width}:{asmr_height},setsar=1,fps={cfg.fps}[bot]",
+            "[top][bot]vstack=inputs=2[bg]",
+            f"[bg]subtitles='{subs_arg}'[v]",
+        ]
+    else:
+        vf_parts = [
+            f"[0:v]scale={cfg.width}:{cfg.height}:"
+            f"force_original_aspect_ratio=increase:flags={scale_flags},"
+            f"crop={cfg.width}:{cfg.height},setsar=1,fps={cfg.fps}[bg]",
+            f"[bg]subtitles='{subs_arg}'[v]",
+        ]
 
     audio_parts: list[str] = []
 
@@ -163,8 +184,14 @@ def compose(
     music_path: Path | None = None,
     music_base_db: float = -22.0,
     music_sidechain: bool = True,
+    asmr_path: Path | None = None,
+    asmr_height: int = 0,
 ) -> Path:
-    """Render the final Short. Returns ``output_path`` on success."""
+    """Render the final Short. Returns ``output_path`` on success.
+
+    When ``asmr_path`` is provided the video is rendered as a vertical
+    split-screen (top: gameplay, bottom: muted ASMR).
+    """
     _ensure_ffmpeg()
     if not gameplay_path.exists():
         raise FileNotFoundError(gameplay_path)
@@ -187,6 +214,7 @@ def compose(
 
     sfx_clips = sfx_clips or []
     music_idx: int | None = None
+    asmr_idx: int | None = None
     next_idx = 2
 
     # Music goes first (lower SFX indices keep filter strings short) but
@@ -194,6 +222,14 @@ def compose(
     if music_path is not None and music_path.exists():
         inputs += ["-stream_loop", "-1", "-i", str(music_path)]
         music_idx = next_idx
+        next_idx += 1
+
+    if asmr_path is not None and asmr_path.exists() and asmr_height > 0:
+        # ``-an`` here would apply to the *entire* compose call; instead
+        # we just ignore the ASMR audio stream by never mapping it into
+        # the audio graph. -stream_loop lets it cover long narrations.
+        inputs += ["-stream_loop", "-1", "-i", str(asmr_path)]
+        asmr_idx = next_idx
         next_idx += 1
 
     indexed_sfx: list[tuple[int, SfxClip]] = []
@@ -215,6 +251,8 @@ def compose(
         intro_padding_s=cfg.intro_padding_s,
         music_base_db=music_base_db,
         music_sidechain=music_sidechain,
+        asmr_idx=asmr_idx,
+        asmr_height=asmr_height if asmr_idx is not None else 0,
     )
 
     cmd: list[str] = ["ffmpeg", "-y", *inputs, "-filter_complex", filter_graph]

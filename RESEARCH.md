@@ -47,10 +47,16 @@ What actually predicts retention:
 | Voice speed itself | **±0%** (1.0 ≈ 1.2 at this length) | negligible |
 
 **Implementation in the tool:**
-- Default `audio_speedup=1.0` (no atempo bump)
-- Kokoro-onnx (8/10 expressiveness) as default backend
+- Default `audio_speedup=1.0` (no atempo bump) — applied across every niche profile
+- Kokoro-82M ONNX (current top-rated open-weight TTS on TTS Arena) as default backend, with auto-fallback to Edge TTS when the model isn't downloaded
 - Per-niche voice selection (`niche/profiles.py`)
-- Auto-gender-detect from story POV (planned, see [Roadmap](ROADMAP.md) Stage 2)
+- **Auto-gender-detect from story POV** (`script/gender.py`) — regex
+  scoring on Reddit shorthand (`(25F)`, `(M32)`), explicit identity
+  statements (`I'm a 24F`, `as a guy`), and relationship markers
+  (`my wife`, `my husband`). Picks `am_michael` / `af_heart` (Kokoro)
+  or Christopher / Aria (Edge) accordingly. CLI `--voice` still wins
+- Per-batch voice rotation via post-id-seeded index so back-to-back
+  Shorts don't sound identical
 - OpenAI `gpt-4o-mini-tts` with text instructions (planned, Stage 3)
 
 ## 3. Captions: 1-3 words, pop animation, ALL CAPS

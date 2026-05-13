@@ -62,7 +62,15 @@ def _format_font_for_ass(style: SubtitleStyle) -> str:
 
 
 def _build_header(style: SubtitleStyle, render: RenderConfig) -> str:
-    margin_v = int(render.height * (1.0 - style.vertical_position))
+    """Emit the .ass header.
+
+    Subtitles are positioned in each event via an explicit ``\\pos(x,y)``
+    tag (see ``build_ass``), not via Alignment + MarginV \u2014 different libass
+    builds disagree on whether MarginV measures from the top or the bottom
+    when Alignment=5 (middle-center), which is what made the prior version
+    drop captions into the bottom corner on some installs. Using absolute
+    coordinates is deterministic across every supported libass.
+    """
     bold = -1 if style.bold else 0
     fontname = _format_font_for_ass(style)
     return (
@@ -81,7 +89,7 @@ def _build_header(style: SubtitleStyle, render: RenderConfig) -> str:
         f"Style: Pop,{fontname},{style.font_size},{style.primary_color},"
         f"{style.primary_color},{style.outline_color},&H00000000,"
         f"{bold},0,0,0,100,100,0,0,1,{style.outline_width},{style.shadow},"
-        f"5,40,40,{margin_v},1\n"
+        f"5,40,40,0,1\n"
         "\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
@@ -116,9 +124,20 @@ def build_ass(
     style: SubtitleStyle,
     render: RenderConfig,
 ) -> str:
-    """Build the full .ass file contents for the given word-level timings."""
+    r"""Build the full .ass file contents for the given word-level timings.
+
+    Each Dialogue line is prefixed with an absolute ``\pos(x,y)`` tag so
+    the caption is anchored at the same on-screen coordinates regardless
+    of how the local libass build interprets Alignment+MarginV. ``y`` is
+    computed from ``style.vertical_position`` (0.0 = top, 1.0 = bottom of
+    frame).
+    """
     chunks = _chunk_words(words, max_per_chunk=style.max_words_per_chunk)
     lines = [_build_header(style, render)]
+
+    pos_x = render.width // 2
+    pos_y = int(render.height * style.vertical_position)
+    pos_tag = rf"{{\an5\pos({pos_x},{pos_y})}}"
 
     for chunk in chunks:
         if not chunk:
@@ -133,7 +152,7 @@ def build_ass(
             text = _render_chunk_text(chunk, highlight_idx=idx, style=style)
             line = (
                 f"Dialogue: 0,{_format_time(seg_start)},{_format_time(seg_end)},"
-                f"Pop,,0,0,0,,{text}"
+                f"Pop,,0,0,0,,{pos_tag}{text}"
             )
             lines.append(line)
     return "\n".join(lines) + "\n"

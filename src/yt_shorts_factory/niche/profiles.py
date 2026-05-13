@@ -32,7 +32,7 @@ class NicheProfile:
     voice: str
     music_mood: str  # "drama" | "horror" | "comedy" | "lofi"
     hook_style: HookStyle
-    audio_speedup: float = 1.18
+    audio_speedup: float = 1.0
     sfx_intensity: float = 1.0  # multiplier on SFX dB / count
     description: str = ""
     aliases: tuple[str, ...] = field(default_factory=tuple)
@@ -42,10 +42,10 @@ class NicheProfile:
 NICHE_PROFILES: dict[str, NicheProfile] = {
     "drama": NicheProfile(
         name="drama",
-        voice="en-US-GuyNeural",
+        voice="en-US-ChristopherNeural",
         music_mood="drama",
         hook_style="drama",
-        audio_speedup=1.20,
+        audio_speedup=1.0,
         sfx_intensity=1.0,
         description="High-stakes interpersonal conflict (AITA, MaliciousCompliance).",
         aliases=(
@@ -63,9 +63,9 @@ NICHE_PROFILES: dict[str, NicheProfile] = {
         voice="en-US-AriaNeural",
         music_mood="drama",
         hook_style="cliffhanger",
-        audio_speedup=1.15,
+        audio_speedup=1.0,
         sfx_intensity=0.8,
-        description="Relationship advice and breakups (relationship_advice, BORU).",
+        description="Relationship advice, breakups, infidelity (BORU, survivinginfidelity).",
         aliases=(
             "relationship_advice",
             "relationships",
@@ -73,6 +73,9 @@ NICHE_PROFILES: dict[str, NicheProfile] = {
             "boru",
             "datingadvice",
             "deadbedrooms",
+            "survivinginfidelity",
+            "adultery",
+            "cheating_stories",
         ),
     ),
     "comedy": NicheProfile(
@@ -80,7 +83,7 @@ NICHE_PROFILES: dict[str, NicheProfile] = {
         voice="en-US-JennyNeural",
         music_mood="comedy",
         hook_style="question",
-        audio_speedup=1.22,
+        audio_speedup=1.0,
         sfx_intensity=1.1,
         description="Light, embarrassing, funny (TIFU, confession, talesfromretail).",
         aliases=(
@@ -97,9 +100,9 @@ NICHE_PROFILES: dict[str, NicheProfile] = {
         voice="en-US-ChristopherNeural",
         music_mood="horror",
         hook_style="cliffhanger",
-        audio_speedup=1.05,  # slower = creepier
+        audio_speedup=1.0,
         sfx_intensity=0.9,
-        description="Spooky/paranormal (nosleep, Glitch_in_the_Matrix, paranormal).",
+        description="Spooky/paranormal (nosleep, shortscarystories, paranormal).",
         aliases=(
             "nosleep",
             "letsnotmeet",
@@ -107,14 +110,31 @@ NICHE_PROFILES: dict[str, NicheProfile] = {
             "glitchinthematrix",
             "paranormal",
             "thetruthishere",
+            "shortscarystories",
+            "twosentencehorror",
+        ),
+    ),
+    "confession": NicheProfile(
+        name="confession",
+        voice="en-US-AriaNeural",
+        music_mood="drama",
+        hook_style="cliffhanger",
+        audio_speedup=1.0,
+        sfx_intensity=0.7,
+        description="Dark personal confessions (offmychest, TrueOffMyChest, raisedbynarcissists).",
+        aliases=(
+            "offmychest",
+            "trueoffmychest",
+            "raisedbynarcissists",
+            "justnomil",
         ),
     ),
     "everyday": NicheProfile(
         name="everyday",
-        voice="en-US-GuyNeural",
+        voice="en-US-ChristopherNeural",
         music_mood="lofi",
         hook_style="auto",
-        audio_speedup=1.18,
+        audio_speedup=1.0,
         sfx_intensity=0.9,
         description="Catch-all for general subs.",
         aliases=(

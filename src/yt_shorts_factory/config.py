@@ -12,18 +12,58 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+# Curated list of high-engagement story subreddits used as the default
+# rotation pool. Mix of moral conflict, horror, betrayal, and dark
+# confession content where 5-15 fresh posts/day clear the length filter.
+_DEFAULT_SUBREDDITS: list[str] = [
+    "AmItheAsshole",
+    "AITAH",
+    "AmIOverreacting",
+    "EntitledParents",
+    "MaliciousCompliance",
+    "ProRevenge",
+    "JustNoMIL",
+    "raisedbynarcissists",
+    "relationship_advice",
+    "survivinginfidelity",
+    "nosleep",
+    "shortscarystories",
+    "TwoSentenceHorror",
+    "LetsNotMeet",
+    "confession",
+    "offmychest",
+    "TrueOffMyChest",
+    "BestofRedditorUpdates",
+]
+
+# Story-listing endpoints we treat as "fresh". For a given subreddit we
+# pull a few of these and merge results, so the pool always contains
+# something posted in the last 24h.
+SortType = Literal["top", "hot", "new", "rising"]
+
 
 class RedditConfig(BaseModel):
-    """How we pull stories from Reddit."""
+    """How we pull stories from Reddit.
 
-    subreddit: str = "AmItheAsshole"
+    ``subreddits`` is the round-robin rotation pool used by ``batch`` and
+    by the default ``generate-cmd`` when the operator doesn't pin one
+    specific subreddit via ``subreddit``. When ``subreddit`` is set it
+    takes priority — same field the original MVP used.
+    """
+
+    subreddit: str | None = None
+    subreddits: list[str] = Field(default_factory=lambda: list(_DEFAULT_SUBREDDITS))
     time_filter: str = "day"  # day | week | month | year | all
+    sort: SortType = "top"   # "top"/"hot"/"new"/"rising"
+    # When True, we additionally pull "new" alongside ``sort`` and merge,
+    # so the pool always contains posts published in the last few hours.
+    include_fresh: bool = True
     limit: int = 25
     min_chars: int = 600
     max_chars: int = 3500
     skip_nsfw: bool = True
     skip_stickied: bool = True
-    user_agent: str = "yt-shorts-factory/0.1 (+https://github.com/)"
+    user_agent: str = "yt-shorts-factory/0.1 (+https://github.com/pablo228sos/yt-shorts-factory)"
 
 
 TtsBackend = Literal["edge", "kokoro"]
@@ -33,22 +73,57 @@ class TtsConfig(BaseModel):
     """Voice synthesis settings.
 
     Two backends are supported:
-      - ``edge`` (default): Microsoft Edge TTS, free, online, no API key, fast.
-      - ``kokoro``: Local Kokoro-82M ONNX model. Top-tier quality, runs on
-        CPU. Opt-in: requires ``pip install kokoro-onnx`` and a one-time
-        model download (see ``download-tts-models`` CLI command).
+      - ``kokoro`` (default): Local Kokoro-82M ONNX model. Currently the
+        top-rated open-weight TTS model on TTS Arena, runs on CPU, no API
+        key, no network. ~310 MB one-time model download via the
+        ``download-tts-models`` CLI command. ``voice`` here is the Edge
+        name; the Kokoro voice is resolved separately via ``kokoro.voice``
+        (or auto-picked per-story).
+      - ``edge``: Microsoft Edge TTS — free, online streaming, very
+        natural neural voices. Used as the automatic fallback when Kokoro
+        model files aren't on disk yet.
 
-    ``audio_speedup`` is applied after synthesis via ``ffmpeg atempo`` so it
-    works identically for both backends. 1.0 = original pace; 1.15-1.25 is
-    the typical "brainrot" pace.
+    ``audio_speedup`` runs after synthesis via ffmpeg ``atempo``. Defaults
+    to ``1.0`` (no speed change) — the user-facing goal is *clarity +
+    intonation*, not artificial speedup.
     """
 
-    backend: TtsBackend = "edge"
-    voice: str = "en-US-GuyNeural"
-    rate: str = "+8%"
+    backend: TtsBackend = "kokoro"
+    # Edge fallback voice. Christopher = deep adult-male narrator, the
+    # closest Edge analogue to Kokoro's ``am_michael``.
+    voice: str = "en-US-ChristopherNeural"
+    # Edge-preferred voices the pipeline picks from when narrator gender
+    # is auto-detected. Order matters: first usable voice wins.
+    male_voices: list[str] = Field(
+        default_factory=lambda: [
+            "en-US-ChristopherNeural",
+            "en-US-AndrewMultilingualNeural",
+            "en-US-BrianNeural",
+            "en-US-GuyNeural",
+        ]
+    )
+    female_voices: list[str] = Field(
+        default_factory=lambda: [
+            "en-US-AriaNeural",
+            "en-US-AvaMultilingualNeural",
+            "en-US-EmmaMultilingualNeural",
+            "en-US-JennyNeural",
+        ]
+    )
+    # Rotate through male/female voice candidates between videos so back-to-back
+    # uploads don't sound identical (Edge ``backend`` only — Kokoro picks one
+    # voice per gender).
+    rotate_voices: bool = True
+    rate: str = "+0%"
     pitch: str = "+0Hz"
     volume: str = "+0%"
-    audio_speedup: float = 1.18
+    audio_speedup: float = 1.0
+    # When True the pipeline runs gender heuristics on the story text and
+    # swaps in a male/female voice automatically; user --voice overrides win.
+    auto_gender: bool = True
+    # When Kokoro is requested but the model files aren't downloaded yet,
+    # fall back to Edge instead of erroring out.
+    fallback_to_edge: bool = True
 
 
 class KokoroConfig(BaseModel):
@@ -57,7 +132,16 @@ class KokoroConfig(BaseModel):
     model_dir: Path = Path("cache/tts/kokoro")
     model_file: str = "kokoro-v1.0.onnx"
     voices_file: str = "voices-v1.0.bin"
-    voice: str = "am_michael"  # narration-friendly male voice
+    # Fallback voice (used when auto_gender returns ``unknown``).
+    voice: str = "am_michael"
+    # Top-rated Kokoro narrator voices per gender. The pipeline picks one
+    # per-story based on text heuristics.
+    male_voices: list[str] = Field(
+        default_factory=lambda: ["am_michael", "am_adam", "am_eric"]
+    )
+    female_voices: list[str] = Field(
+        default_factory=lambda: ["af_heart", "af_bella", "af_nicole", "af_sarah"]
+    )
     speed: float = 1.0  # in-model speed; we additionally apply ``audio_speedup`` later
     lang: str = "en-us"
     model_url: str = (
@@ -133,6 +217,18 @@ _DEFAULT_GAMEPLAY_SOURCES: list[str] = [
     "https://www.youtube.com/watch?v=u7kdVe8q5zs",  # Subway Surfers Gameplay [No Copyright]
     "ytsearch1:minecraft parkour gameplay no copyright 1 hour 1080p",
     "ytsearch1:subway surfers gameplay no copyright 1 hour 1080p",
+    "ytsearch1:gta v stunts no copyright 1 hour 1080p",
+    "ytsearch1:trackmania gameplay no copyright 1 hour 1080p",
+]
+
+# Satisfying / ASMR sources used in the bottom half of the split-screen
+# layout. Same yt-dlp pipeline as gameplay, separate cache subfolder.
+_DEFAULT_ASMR_SOURCES: list[str] = [
+    "ytsearch1:satisfying soap cutting asmr no copyright 1 hour",
+    "ytsearch1:asmr cooking aesthetic no copyright 1 hour",
+    "ytsearch1:satisfying kinetic sand cutting no copyright 1 hour",
+    "ytsearch1:soap carving satisfying compilation 1 hour no copyright",
+    "ytsearch1:satisfying glass cutting asmr 1 hour no copyright",
 ]
 
 
@@ -155,10 +251,59 @@ class GameplayConfig(BaseModel):
     min_source_seconds: float = 180.0
     max_disk_mb: int = 8192  # cap on total cached source MB (bumped for 1080p)
     preferred_height: int = 1080
+    # Drop cached segments that don't match ``preferred_height`` so the
+    # composer never reuses an old 720p slice after a 1080p upgrade.
+    prune_low_res_segments: bool = True
+    # When True, the segment picker avoids re-using the most recently
+    # rendered segment back-to-back so consecutive batch videos look
+    # visually different. The chooser falls back to repeats only when one
+    # segment is the only available option.
+    avoid_recent_repeats: bool = True
     # When YouTube rate-limits anonymous access (common on cloud IPs), pass a
     # browser name here ("firefox", "chrome", "edge") and yt-dlp will reuse
     # that browser's cookies. Residential IPs usually don't need this.
     cookies_from_browser: str | None = None
+
+
+class AsmrConfig(BaseModel):
+    """Bottom-half satisfying/ASMR overlay.
+
+    When ``enabled=True`` the composer renders a split-screen 9:16: the
+    top half is the regular gameplay B-roll (1080x960) and the bottom
+    half is a muted ASMR / cooking / soap-carving clip (1080x960). The
+    audio track is muted because the narrator + music already occupy the
+    audio bus; ASMR plays as a purely visual element.
+
+    ``sources`` follows the same yt-dlp resolution as gameplay; clips are
+    cached in ``cache_dir`` and reused / rotated across batches.
+    """
+
+    enabled: bool = True
+    cache_dir: Path = Path("cache/asmr")
+    sources: list[str] = Field(default_factory=lambda: list(_DEFAULT_ASMR_SOURCES))
+    local_files: list[Path] = Field(default_factory=list)
+    segment_seconds: float = 90.0
+    max_disk_mb: int = 4096
+    preferred_height: int = 1080
+    # Bottom-half height in the split-screen layout. The gameplay fills
+    # the rest (RenderConfig.height - asmr_height).
+    asmr_height: int = 960
+    # When True, ASMR sources rotate across consecutive batch outputs.
+    avoid_recent_repeats: bool = True
+    cookies_from_browser: str | None = None
+
+
+class DedupConfig(BaseModel):
+    """Persistent dedup of already-rendered Reddit posts.
+
+    ``db_path`` is a SQLite file the pipeline updates after every
+    successful render: ``(post_id, subreddit, title, rendered_at)``.
+    Subsequent runs skip any post whose id is already present, so a
+    long-running ``batch`` doesn't recycle the same stories.
+    """
+
+    enabled: bool = True
+    db_path: Path = Path("cache/processed.sqlite")
 
 
 class SfxConfig(BaseModel):
@@ -239,6 +384,8 @@ class PipelineConfig(BaseModel):
     subtitles: SubtitleStyle = Field(default_factory=SubtitleStyle)
     hook: HookConfig = Field(default_factory=HookConfig)
     gameplay: GameplayConfig = Field(default_factory=GameplayConfig)
+    asmr: AsmrConfig = Field(default_factory=AsmrConfig)
+    dedup: DedupConfig = Field(default_factory=DedupConfig)
     sfx: SfxConfig = Field(default_factory=SfxConfig)
     music: MusicConfig = Field(default_factory=MusicConfig)
     render: RenderConfig = Field(default_factory=RenderConfig)
