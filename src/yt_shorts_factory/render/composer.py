@@ -180,9 +180,13 @@ def _build_filter_graph(
             audio_parts.append("[m_raw]anull[music]")
         mix_labels.append("[music]")
 
-    # Gameplay's own audio always ducked low.
-    audio_parts.append(f"[0:a]volume={cfg.duck_music_db}dB[bgm]")
-    mix_labels.append("[bgm]")
+    # Gameplay's own audio: muted by default (users complained the
+    # residual Subway Surfers / Minecraft music bled under the narrator
+    # even at -25 dB). Set ``cfg.gameplay_audio = True`` to bring it
+    # back, ducked by ``duck_music_db``.
+    if getattr(cfg, "gameplay_audio", False):
+        audio_parts.append(f"[0:a]volume={cfg.duck_music_db}dB[bgm]")
+        mix_labels.append("[bgm]")
 
     audio_parts.append(
         f"{''.join(mix_labels)}amix=inputs={len(mix_labels)}:"

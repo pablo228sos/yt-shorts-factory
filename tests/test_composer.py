@@ -33,7 +33,8 @@ def test_clamp_atempo_chains_for_out_of_range() -> None:
 
 
 def test_build_filter_graph_minimal() -> None:
-    """No SFX, no music: just gameplay + voice + duck gameplay audio."""
+    """No SFX, no music: just gameplay + voice. Gameplay audio is muted
+    by default so the narrator isn't fighting Subway Surfers music."""
     graph = _build_filter_graph(
         cfg=RenderConfig(),
         subs_arg="subs.ass",
@@ -49,8 +50,11 @@ def test_build_filter_graph_minimal() -> None:
     assert "flags=lanczos" in graph
     assert "atempo=1.0" in graph
     assert "subtitles='subs.ass'" in graph
-    # amix inputs = voice + gameplay = 2
-    assert "amix=inputs=2" in graph
+    # amix inputs = voice only (gameplay audio muted by default)
+    assert "amix=inputs=1" in graph
+    # Gameplay audio leg must NOT be present when gameplay_audio=False.
+    assert "[0:a]" not in graph
+    assert "[bgm]" not in graph
     # No music => no sidechain copy of the voice; emitting [vo_sc] would
     # leave a dangling pad and ffmpeg would reject the graph.
     assert "[vo_sc]" not in graph
@@ -73,8 +77,8 @@ def test_build_filter_graph_with_music_no_sidechain_omits_vo_sc() -> None:
     )
     assert "[vo_sc]" not in graph
     assert "sidechaincompress" not in graph
-    # amix inputs = voice + music + gameplay = 3
-    assert "amix=inputs=3" in graph
+    # amix inputs = voice + music (gameplay audio muted by default)
+    assert "amix=inputs=2" in graph
 
 
 def test_build_filter_graph_with_sfx_and_music() -> None:
@@ -94,8 +98,8 @@ def test_build_filter_graph_with_sfx_and_music() -> None:
         music_base_db=-22.0,
         music_sidechain=True,
     )
-    # amix inputs = voice + music + sfx0 + sfx1 + gameplay = 5
-    assert "amix=inputs=5" in graph
+    # amix inputs = voice + music + sfx0 + sfx1 (gameplay audio muted)
+    assert "amix=inputs=4" in graph
     assert "sidechaincompress" in graph
     # SFX delays should include the intro padding (5.0 + 0.15 = 5150 ms).
     assert "adelay=5150:all=1" in graph

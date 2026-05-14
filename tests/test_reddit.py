@@ -91,6 +91,31 @@ def test_pick_best_returns_none_for_empty() -> None:
     assert pick_best([]) is None
 
 
+def test_pick_best_prefers_shock_titles_over_higher_score() -> None:
+    """Wild premise titles (cheating, paternity, family-relation drama)
+    should outrank a mildly higher-scoring boring AITA post."""
+    cfg = _single_sub_cfg()
+    payload = _payload(
+        _post(
+            id="boring",
+            title="AITA for using too many semicolons in my code?",
+            selftext="It was a normal day. " + ("filler " * 200),
+            score=5000,
+        ),
+        _post(
+            id="wild",
+            title="My fianc\u00e9's brother sent me proof he's been cheating with my sister",
+            selftext="I found out yesterday. " + ("filler " * 200),
+            score=3000,
+        ),
+    )
+    with _make_client(payload) as client:
+        stories = fetch_stories(cfg, client=client)
+    best = pick_best(stories)
+    assert best is not None
+    assert best.id == "wild"
+
+
 def test_fetch_stories_raises_on_http_error_for_single_sub() -> None:
     """Single-subreddit calls preserve the original 'raise on HTTP error' semantics."""
     def handler(request: httpx.Request) -> httpx.Response:

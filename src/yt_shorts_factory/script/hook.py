@@ -84,12 +84,15 @@ def _is_aita_like(title: str) -> bool:
 
 
 def _pick_style(title: str) -> HookStyle:
-    """Pick a hook template when style='auto'."""
-    if _has_question_intent(title):
-        return "question"
-    if _is_aita_like(title):
-        return "verdict"
-    return "drama"
+    """Pick a hook template when style='auto'.
+
+    Default is ``title_only`` \u2014 user testing showed the framed-question
+    preambles (\"You need to hear what happened next: ...\") feel like
+    YouTube-thumbnail farm content and dropped retention. The raw,
+    cleaned title (\"My fianc\u00e9's brother sent me proof he's been
+    cheating\") tests significantly better.
+    """
+    return "title_only"
 
 
 def _drama_hook(stripped_title: str, _body_lead: str) -> str:
@@ -119,6 +122,19 @@ def _cliffhanger_hook(stripped_title: str, body_lead: str) -> str:
     if body_lead:
         return body_lead
     return stripped_title.rstrip("?.! ") + "..."
+
+
+def _title_only_hook(stripped_title: str, _body_lead: str) -> str:
+    """Speak the cleaned title as-is — no preamble.
+
+    This is the highest-retention default: wild Reddit titles like
+    "My fiancé's brother sent me proof he's been cheating" or
+    "I married a woman who turned out to be my half-sister" already
+    grab attention; adding "You need to hear what happened next: ..."
+    only steals the first 2-3 seconds of viewer attention.
+    """
+    bare = stripped_title.rstrip("?.! ").strip()
+    return bare or stripped_title.strip()
 
 
 def _truncate(text: str, max_words: int) -> str:
@@ -151,6 +167,8 @@ def build_hook(title: str, body: str, cfg: HookConfig) -> str:
         hook = _verdict_hook(stripped, body_lead)
     elif style == "cliffhanger":
         hook = _cliffhanger_hook(stripped, body_lead)
+    elif style == "title_only":
+        hook = _title_only_hook(stripped, body_lead)
     else:  # safety net
         hook = stripped or title.strip()
 

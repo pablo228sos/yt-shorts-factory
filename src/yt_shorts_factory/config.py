@@ -185,7 +185,13 @@ class SubtitleStyle(BaseModel):
     font_fallback: list[str] = Field(
         default_factory=lambda: ["Arial Black", "Anton", "Oswald", "Bebas Neue", "Arial"]
     )
-    font_size: int = 150
+    # 110 px on a 1080-wide canvas keeps a 2-word chunk like ``WHAT
+    # HAPPENED`` inside the safe area without horizontal overflow.
+    # Earlier 150 px clipped long words off-screen ("HEAR WHAT
+    # HAPPEN[ED]" — see image reports). libass smart-wraps anything
+    # still wider than the margins via ``WrapStyle: 0`` set in the
+    # subtitle header.
+    font_size: int = 110
     bold: bool = True
     uppercase: bool = True
     primary_color: str = "&H00FFFFFF"  # white
@@ -193,11 +199,25 @@ class SubtitleStyle(BaseModel):
     outline_color: str = "&H00000000"  # black
     outline_width: int = 2
     shadow: int = 0
-    max_words_per_chunk: int = 3
+    # 2 words per chunk fits in the safe area at font_size=110 even for
+    # long-word pairs like "DAUGHTER HAPPENED".
+    max_words_per_chunk: int = 2
+    # Horizontal padding (in .ass margin units) kept clear on each side.
+    # libass treats MarginL/MarginR as the inset from the rendered edge
+    # for line wrapping decisions when WrapStyle=0.
+    side_margin: int = 60
     vertical_position: float = 0.55  # 0.0 = top, 1.0 = bottom
 
 
-HookStyle = Literal["auto", "drama", "question", "verdict", "cliffhanger", "none"]
+HookStyle = Literal[
+    "auto",
+    "drama",
+    "question",
+    "verdict",
+    "cliffhanger",
+    "title_only",
+    "none",
+]
 
 
 class HookConfig(BaseModel):
@@ -205,9 +225,15 @@ class HookConfig(BaseModel):
 
     The hook is prepended to the cleaned story and read first. Topic-aware
     templates are chosen based on the subreddit if ``style='auto'``.
+
+    Default is ``"title_only"``: the cleaned Reddit title alone is the
+    hook. The framed-question ("You need to hear what happened next: ...")
+    style tested as cringy in user feedback — raw wild titles like
+    "My fiancé's brother sent me proof he's been cheating" already
+    grab attention without an extra preamble.
     """
 
-    style: HookStyle = "auto"
+    style: HookStyle = "title_only"
     # Hard cap on hook length in words. Long openers eat the first 3 sec.
     max_words: int = 14
     # Whether to also drop the original Reddit title from the narration
@@ -223,10 +249,14 @@ class HookConfig(BaseModel):
 _DEFAULT_GAMEPLAY_SOURCES: list[str] = [
     "https://www.youtube.com/watch?v=intRX7BRA90",  # Minecraft Parkour [Free to Use]
     "https://www.youtube.com/watch?v=u7kdVe8q5zs",  # Subway Surfers Gameplay [No Copyright]
-    "ytsearch1:minecraft parkour gameplay no copyright 1 hour 1080p",
-    "ytsearch1:subway surfers gameplay no copyright 1 hour 1080p",
-    "ytsearch1:gta v stunts no copyright 1 hour 1080p",
-    "ytsearch1:trackmania gameplay no copyright 1 hour 1080p",
+    # 4K / 1440p search queries: yt-dlp picks the highest available
+    # variant up to ``preferred_height``, so asking for 1440p / 4K in
+    # the search string biases toward sharper sources that survive the
+    # 1.78x crop into 1080x1920 without visible upscaling.
+    "ytsearch1:minecraft parkour gameplay no copyright 1 hour 4k",
+    "ytsearch1:subway surfers gameplay no copyright 1 hour 4k",
+    "ytsearch1:gta v stunts no copyright 1 hour 1440p",
+    "ytsearch1:trackmania gameplay no copyright 1 hour 1440p",
 ]
 
 # Satisfying / ASMR sources used in the bottom half of the split-screen
@@ -257,11 +287,23 @@ class GameplayConfig(BaseModel):
     local_files: list[Path] = Field(default_factory=list)
     segment_seconds: float = 90.0
     min_source_seconds: float = 180.0
-    max_disk_mb: int = 8192  # cap on total cached source MB (bumped for 1080p)
-    preferred_height: int = 1080
+    # 1440p / 4K sources are larger; lift the cap so a couple of long
+    # gameplay videos co-exist with the ASMR pool.
+    max_disk_mb: int = 16384
+    # 1440p source -> 1.33x upscale into 1080x1920 (vs. 1.78x from
+    # 1080p) which preserves sharpness on the gameplay layer. yt-dlp
+    # will gracefully fall back to whatever variant the upload offers
+    # if 1440p isn't available.
+    preferred_height: int = 1440
     # Drop cached segments that don't match ``preferred_height`` so the
     # composer never reuses an old 720p slice after a 1080p upgrade.
     prune_low_res_segments: bool = True
+    # Skip the first / last N seconds of each source when extracting a
+    # segment. The earliest seconds are usually intro splash screens,
+    # spawn animations, and idle title cards ("9,802,624 coins!" on the
+    # Subway Surfers spawn screen) which look terrible as B-roll.
+    skip_intro_seconds: float = 60.0
+    skip_outro_seconds: float = 30.0
     # When True, the segment picker avoids re-using the most recently
     # rendered segment back-to-back so consecutive batch videos look
     # visually different. The chooser falls back to repeats only when one
@@ -382,6 +424,11 @@ class RenderConfig(BaseModel):
     # ffmpeg ``scale=...:flags=`` argument. lanczos = sharp, slowest.
     scale_flags: str = "lanczos"
     duck_music_db: float = -25.0  # how much to duck the gameplay's own audio
+    # When False (default) the gameplay clip's native soundtrack is
+    # dropped entirely from the mix. Users complained that the residual
+    # Subway Surfers / Minecraft music bled under the narrator even at
+    # -25 dB. Voice + SFX + (optional) music bed only.
+    gameplay_audio: bool = False
     intro_padding_s: float = 0.15
     outro_padding_s: float = 0.4
     # Aggressive bitrate/quality knob: lower = better quality, default 22.

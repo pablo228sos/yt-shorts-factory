@@ -68,3 +68,31 @@ def test_assemble_narration_keeps_title_when_requested() -> None:
     )
     assert "Some Title" in text
     assert "Body" in text
+
+
+def test_build_hook_title_only_strips_aita_and_question_mark() -> None:
+    """Default ``title_only`` style: speak the cleaned title verbatim,
+    no \"You need to hear what happened next: ...\" preamble."""
+    hook = build_hook(
+        "AITA for telling my MIL she's not invited?",
+        "Body text.",
+        HookConfig(style="title_only"),
+    )
+    assert "you need to hear" not in hook.lower()
+    assert "reddit voted" not in hook.lower()
+    assert "would you" not in hook.lower()
+    assert "aita" not in hook.lower()
+    assert "telling my MIL she's not invited" in hook
+    assert not hook.endswith("?")
+
+
+def test_build_hook_title_only_is_the_default() -> None:
+    """Regression: HookConfig() should use title_only \u2014 user feedback
+    rejected the 'You need to hear what happened next' preamble."""
+    hook = build_hook(
+        "My fianc\u00e9's brother sent me proof he's been cheating",
+        "Body text.",
+        HookConfig(),
+    )
+    assert "you need to hear" not in hook.lower()
+    assert hook.startswith("My fianc")

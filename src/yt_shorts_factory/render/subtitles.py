@@ -79,13 +79,17 @@ def _build_header(style: SubtitleStyle, render: RenderConfig) -> str:
     """
     bold = -1 if style.bold else 0
     fontname = _format_font_for_ass(style)
+    side = max(0, int(style.side_margin))
     return (
         "[Script Info]\n"
         "ScriptType: v4.00+\n"
         f"PlayResX: {render.width}\n"
         f"PlayResY: {render.height}\n"
         "ScaledBorderAndShadow: yes\n"
-        "WrapStyle: 2\n"
+        # WrapStyle 0 = smart wrap (top line wider). libass will break a
+        # too-wide chunk onto two lines instead of letting it fall off
+        # the side of the frame.
+        "WrapStyle: 0\n"
         "\n"
         "[V4+ Styles]\n"
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
@@ -95,7 +99,7 @@ def _build_header(style: SubtitleStyle, render: RenderConfig) -> str:
         f"Style: Pop,{fontname},{style.font_size},{style.primary_color},"
         f"{style.primary_color},{style.outline_color},&H00000000,"
         f"{bold},0,0,0,100,100,0,0,1,{style.outline_width},{style.shadow},"
-        f"5,40,40,0,1\n"
+        f"5,{side},{side},0,1\n"
         "\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "

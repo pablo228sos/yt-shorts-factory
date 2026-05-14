@@ -156,18 +156,38 @@ def _extract_segment(
     segments_dir: Path,
     segment_seconds: float,
     rng: random.Random,
+    *,
+    skip_intro_seconds: float = 0.0,
+    skip_outro_seconds: float = 0.0,
 ) -> Path:
-    """Cut a random N-second slice out of `source` into `segments_dir`."""
+    """Cut a random N-second slice out of `source` into `segments_dir`.
+
+    ``skip_intro_seconds`` / ``skip_outro_seconds`` carve dead bands at
+    the start and end of the source so we never sample the title card,
+    spawn screen, or end-of-video splash \u2014 those segments look terrible
+    as gameplay B-roll (e.g. the Subway Surfers idle ``9,802,624``
+    coins spawn screen).
+    """
     if shutil.which("ffmpeg") is None:
         raise RuntimeError("ffmpeg not available; cannot extract gameplay segments.")
     segments_dir.mkdir(parents=True, exist_ok=True)
     total = _probe_duration(source)
-    if total <= segment_seconds + 1:
-        start = 0.0
-        length = max(total - 0.1, 1.0)
+    intro = max(0.0, float(skip_intro_seconds))
+    outro = max(0.0, float(skip_outro_seconds))
+    usable_start = intro + 2.0
+    usable_end = total - outro - segment_seconds - 2.0
+    if total <= segment_seconds + 1 or usable_end <= usable_start:
+        # Source too short for the requested skip bands \u2014 fall back to a
+        # tiny margin at each edge so we still cut something rather than
+        # crashing the pipeline.
+        if total <= segment_seconds + 1:
+            start = 0.0
+            length = max(total - 0.1, 1.0)
+        else:
+            start = rng.uniform(2.0, total - segment_seconds - 2.0)
+            length = segment_seconds
     else:
-        # Leave a small margin at each edge so we never hit codec-EOF weirdness.
-        start = rng.uniform(2.0, total - segment_seconds - 2.0)
+        start = rng.uniform(usable_start, usable_end)
         length = segment_seconds
     out = segments_dir / f"{source.stem}_{int(start)}.mp4"
     if out.exists() and out.stat().st_size > 0:
@@ -377,6 +397,13 @@ def pick_clip(cfg: GameplayConfig, *, rng: random.Random | None = None) -> Path:
         )
 
     source = _pick_non_recent(sources, rng=rng, avoid_recent=cfg.avoid_recent_repeats)
-    segment = _extract_segment(source, segments_dir, cfg.segment_seconds, rng)
+    segment = _extract_segment(
+        source,
+        segments_dir,
+        cfg.segment_seconds,
+        rng,
+        skip_intro_seconds=getattr(cfg, "skip_intro_seconds", 0.0),
+        skip_outro_seconds=getattr(cfg, "skip_outro_seconds", 0.0),
+    )
     _remember_segment(segment)
     return segment

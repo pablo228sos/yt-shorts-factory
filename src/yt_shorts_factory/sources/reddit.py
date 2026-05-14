@@ -195,13 +195,55 @@ def filter_processed(stories: list[RedditStory], processed_ids: Iterable[str]) -
     return [s for s in stories if s.id not in block]
 
 
-def pick_best(stories: list[RedditStory]) -> RedditStory | None:
-    """Pick the highest-scoring story from a filtered list.
+_SHOCK_TERMS: tuple[str, ...] = (
+    # Infidelity / romantic betrayal
+    "cheat", "cheating", "cheated", "affair", "mistress", "infidelit",
+    "side chick", "betrayed",
+    # Family / blood-relation drama
+    "incest", "half-sister", "half sister", "half-brother", "half brother",
+    "stepsister", "stepbrother", "stepdad", "stepmom",
+    "biological father", "biological mother", "real father", "real mother",
+    "secret child", "secret sibling", "adopted", "adoption",
+    "paternity", "dna", "dna test", "23andme",
+    # Body / pregnancy / hard reveals
+    "pregnant", "miscarriage", "abortion", "still birth",
+    # Direct relations weaponised
+    "my husband", "my wife", "my fianc", "my girlfriend", "my boyfriend",
+    "my ex", "my sister", "my brother", "my mother", "my father", "my mom",
+    "my dad", "my stepmom", "my stepdad", "my mil", "my fil",
+    # Money / will / revenge
+    "will", "inheritance", "disinherited",
+    # Discovery framing (often signals a twist)
+    "found out", "i discovered", "i caught", "turns out",
+    "secret", "lied", "lying", "betrayal", "manipulat",
+)
 
-    Ties broken by ``num_comments`` (engagement) then ``created_utc``
-    (freshness) so a viral 2-day-old post still wins over a stale week-old
-    one with the same score.
+
+def _shock_score(story: RedditStory) -> int:
+    """Count how many shock-content keywords occur in the title + body lead.
+
+    Used as a tiebreaker / multiplier in ``pick_best``. Wild titles like
+    \"My fianc\u00e9's brother sent me proof he's been cheating\" get a much
+    higher rank than generic ones like \"AITA for telling my sister not
+    to buy things\".
+    """
+    haystack = f"{story.title}\n{story.body[:400]}".lower()
+    return sum(1 for term in _SHOCK_TERMS if term in haystack)
+
+
+def pick_best(stories: list[RedditStory]) -> RedditStory | None:
+    """Pick the highest-ranked story from a filtered list.
+
+    Ranking key (highest first):
+      1. ``shock_score`` \u2014 count of wild/scandalous keyword matches in
+         title + body lead. Prefers genuinely viral premises.
+      2. ``score``       \u2014 raw Reddit upvotes.
+      3. ``num_comments``\u2014 engagement tiebreaker.
+      4. ``created_utc`` \u2014 freshness tiebreaker.
     """
     if not stories:
         return None
-    return max(stories, key=lambda s: (s.score, s.num_comments, s.created_utc))
+    return max(
+        stories,
+        key=lambda s: (_shock_score(s), s.score, s.num_comments, s.created_utc),
+    )
