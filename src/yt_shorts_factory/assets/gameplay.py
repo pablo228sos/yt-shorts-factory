@@ -118,6 +118,20 @@ def download_source(
         "--merge-output-format",
         "mp4",
         "--no-playlist",
+        # Be resilient to flaky Wi-Fi / mobile-hotspot drops: resume
+        # partial downloads, keep retrying transient errors, never bail
+        # on a fragment timeout. This is what previously caused users
+        # to end up with no ASMR overlay when their connection blipped
+        # mid-download.
+        "--continue",
+        "--retries",
+        "20",
+        "--fragment-retries",
+        "20",
+        "--retry-sleep",
+        "fragment:exp=1:60",
+        "--socket-timeout",
+        "30",
         "-o",
         out_template,
     ]

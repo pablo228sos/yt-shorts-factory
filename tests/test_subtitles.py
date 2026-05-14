@@ -53,3 +53,30 @@ def test_highlight_color_present() -> None:
     style = SubtitleStyle(highlight_color="&H0000F0FF")
     content = build_ass(_words()[:2], style, RenderConfig())
     assert "&H0000F0FF" in content
+
+
+def test_style_line_fontname_has_no_comma() -> None:
+    """Regression: commas inside Fontname shift Outline/Shadow into the
+    wrong slots and cause a giant black halo around every caption."""
+    style = SubtitleStyle(font="Bebas Neue", outline_width=2, shadow=0)
+    content = build_ass(_words(), style, RenderConfig())
+    style_lines = [line for line in content.splitlines() if line.startswith("Style: ")]
+    assert len(style_lines) == 1
+    fields = style_lines[0][len("Style: "):].split(",")
+    # 23 fields per V4+ Style format (Name, Fontname, Fontsize, ...,
+    # Encoding). Extra commas inside Fontname would produce more.
+    assert len(fields) == 23, f"Style has {len(fields)} fields (expected 23): {fields}"
+    # Field index 1 is Fontname.
+    assert fields[1].strip() == "Bebas Neue"
+    # Field index 16 is Outline, 17 is Shadow.
+    assert fields[16].strip() == "2"
+    assert fields[17].strip() == "0"
+
+
+def test_format_font_for_ass_strips_legacy_comma_value() -> None:
+    """If someone passes the legacy comma-joined fallback list via the
+    ``font`` field, only the first name is kept."""
+    from yt_shorts_factory.render.subtitles import _format_font_for_ass
+
+    style = SubtitleStyle(font="Bebas Neue,Impact,Anton,Arial Black")
+    assert _format_font_for_ass(style) == "Bebas Neue"

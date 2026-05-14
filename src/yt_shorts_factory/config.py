@@ -171,11 +171,19 @@ class SubtitleStyle(BaseModel):
     yellow highlight on the active word, fat black outline.
     """
 
-    font: str = "Bebas Neue"
-    # Fonts the renderer will try if ``font`` isn't installed. ffmpeg's
-    # libass falls back automatically when given multiple choices.
+    # NOTE: ``font`` must be a single name (no commas). The .ass Style
+    # field is comma-separated; a comma here silently shifts Outline and
+    # Shadow into the wrong slots and renders a fat black halo around
+    # every caption. ``Impact`` ships with every Windows install and is
+    # the closest stock match for the condensed-bold "viral Shorts" look,
+    # so we default to it. libass + the host font system (DirectWrite on
+    # Windows, fontconfig on Linux/macOS) substitutes automatically if
+    # the chosen font is missing.
+    font: str = "Impact"
+    # Kept for backward compatibility with older user configs; the
+    # renderer ignores this list and trusts libass for font fallback.
     font_fallback: list[str] = Field(
-        default_factory=lambda: ["Impact", "Anton", "Oswald", "Arial Black", "Arial"]
+        default_factory=lambda: ["Arial Black", "Anton", "Oswald", "Bebas Neue", "Arial"]
     )
     font_size: int = 150
     bold: bool = True

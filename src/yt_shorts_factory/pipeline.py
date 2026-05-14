@@ -287,6 +287,12 @@ def generate(
                 asmr_pip.height,
                 asmr_pip.y,
             )
+        else:
+            log.warning(
+                "ASMR overlay enabled but no clip available — rendering "
+                "without PiP. Run `yt-shorts-factory download-gameplay "
+                "--kind asmr` while online to populate the ASMR cache."
+            )
 
     output_path = cfg.output_dir / f"{story.id}_{slug}.mp4"
     log.info("Composing final video -> %s", output_path)

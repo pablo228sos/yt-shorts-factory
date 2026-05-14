@@ -7,10 +7,12 @@ its first word to the end of its last word, large-font, centered around
 ``style.vertical_position``, white text + black outline. The current
 word inside the chunk is highlighted in yellow.
 
-We also support ALL CAPS rendering and a font-fallback list. libass picks
-the first font it can find on the system, so listing ``Bebas Neue, Impact,
-Arial Black`` gracefully degrades on a fresh Windows install (Impact ships
-with Windows) while still using Bebas Neue when present.
+We also support ALL CAPS rendering. The Style's ``Fontname`` field is a
+*single* name (commas are field separators in .ass and would corrupt the
+Style line, e.g. shifting ``Outline`` and ``Shadow`` into the wrong
+slots and producing the giant black blob users saw around captions).
+When the requested font is missing libass substitutes via the system
+font stack (DirectWrite on Windows, fontconfig on Linux/macOS).
 
 This avoids needing libass karaoke `\k` tags and works reliably with
 ffmpeg's `subtitles` filter on any system.
@@ -49,16 +51,20 @@ def _chunk_words(words: list[Word], max_per_chunk: int) -> list[list[Word]]:
 
 
 def _format_font_for_ass(style: SubtitleStyle) -> str:
-    """libass accepts a comma-separated list of preferred fonts."""
-    fonts = [style.font, *style.font_fallback]
-    # Dedupe while preserving order.
-    seen: set[str] = set()
-    uniq: list[str] = []
-    for f in fonts:
-        if f and f not in seen:
-            seen.add(f)
-            uniq.append(f)
-    return ",".join(uniq)
+    """Return a single font name safe for a .ass Style ``Fontname`` field.
+
+    .ass Style fields are comma-separated, so commas inside ``Fontname``
+    silently shift every later field (Bold, Italic, BorderStyle, Outline,
+    Shadow, Alignment...) by N positions. That is what previously made
+    captions render with a giant black halo: ``Outline`` and ``Shadow``
+    ended up at 100 instead of the intended thin values. We therefore
+    pick a single primary font here and trust libass + the host font
+    subsystem to substitute when the font is missing.
+    """
+    primary = style.font.strip()
+    if "," in primary:
+        primary = primary.split(",", 1)[0].strip()
+    return primary or "Arial Black"
 
 
 def _build_header(style: SubtitleStyle, render: RenderConfig) -> str:
