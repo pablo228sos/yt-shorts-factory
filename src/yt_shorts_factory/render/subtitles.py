@@ -4,8 +4,15 @@ r"""Generate Advanced SubStation Alpha (.ass) subtitles with TikTok-style
 Approach: group consecutive words into small chunks (default 1-3 words),
 emit one ASS Dialogue line per chunk. The chunk appears from the start of
 its first word to the end of its last word, large-font, centered around
-`vertical_position`, white text + black outline. The current word inside
-the chunk is highlighted in yellow.
+``style.vertical_position``, white text + black outline. The current
+word inside the chunk is highlighted in yellow.
+
+We also support ALL CAPS rendering. The Style's ``Fontname`` field is a
+*single* name (commas are field separators in .ass and would corrupt the
+Style line, e.g. shifting ``Outline`` and ``Shadow`` into the wrong
+slots and producing the giant black blob users saw around captions).
+When the requested font is missing libass substitutes via the system
+font stack (DirectWrite on Windows, fontconfig on Linux/macOS).
 
 This avoids needing libass karaoke `\k` tags and works reliably with
 ffmpeg's `subtitles` filter on any system.
@@ -34,7 +41,7 @@ def _chunk_words(words: list[Word], max_per_chunk: int) -> list[list[Word]]:
     current: list[Word] = []
     for word in words:
         current.append(word)
-        ends_sentence = word.text.endswith((".", "!", "?"))
+        ends_sentence = word.text.endswith((".", "!", "?", ","))
         if len(current) >= max_per_chunk or ends_sentence:
             chunks.append(current)
             current = []
@@ -43,25 +50,56 @@ def _chunk_words(words: list[Word], max_per_chunk: int) -> list[list[Word]]:
     return chunks
 
 
+def _format_font_for_ass(style: SubtitleStyle) -> str:
+    """Return a single font name safe for a .ass Style ``Fontname`` field.
+
+    .ass Style fields are comma-separated, so commas inside ``Fontname``
+    silently shift every later field (Bold, Italic, BorderStyle, Outline,
+    Shadow, Alignment...) by N positions. That is what previously made
+    captions render with a giant black halo: ``Outline`` and ``Shadow``
+    ended up at 100 instead of the intended thin values. We therefore
+    pick a single primary font here and trust libass + the host font
+    subsystem to substitute when the font is missing.
+    """
+    primary = style.font.strip()
+    if "," in primary:
+        primary = primary.split(",", 1)[0].strip()
+    return primary or "Arial Black"
+
+
 def _build_header(style: SubtitleStyle, render: RenderConfig) -> str:
-    margin_v = int(render.height * (1.0 - style.vertical_position))
+    """Emit the .ass header.
+
+    Subtitles are positioned in each event via an explicit ``\\pos(x,y)``
+    tag (see ``build_ass``), not via Alignment + MarginV \u2014 different libass
+    builds disagree on whether MarginV measures from the top or the bottom
+    when Alignment=5 (middle-center), which is what made the prior version
+    drop captions into the bottom corner on some installs. Using absolute
+    coordinates is deterministic across every supported libass.
+    """
+    bold = -1 if style.bold else 0
+    fontname = _format_font_for_ass(style)
+    side = max(0, int(style.side_margin))
     return (
         "[Script Info]\n"
         "ScriptType: v4.00+\n"
         f"PlayResX: {render.width}\n"
         f"PlayResY: {render.height}\n"
         "ScaledBorderAndShadow: yes\n"
-        "WrapStyle: 2\n"
+        # WrapStyle 0 = smart wrap (top line wider). libass will break a
+        # too-wide chunk onto two lines instead of letting it fall off
+        # the side of the frame.
+        "WrapStyle: 0\n"
         "\n"
         "[V4+ Styles]\n"
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
         "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
         "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        f"Style: Pop,{style.font},{style.font_size},{style.primary_color},"
+        f"Style: Pop,{fontname},{style.font_size},{style.primary_color},"
         f"{style.primary_color},{style.outline_color},&H00000000,"
-        f"-1,0,0,0,100,100,0,0,1,{style.outline_width},{style.shadow},"
-        f"5,40,40,{margin_v},1\n"
+        f"{bold},0,0,0,100,100,0,0,1,{style.outline_width},{style.shadow},"
+        f"5,{side},{side},0,1\n"
         "\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
@@ -69,13 +107,25 @@ def _build_header(style: SubtitleStyle, render: RenderConfig) -> str:
     )
 
 
+def _transform_text(text: str, style: SubtitleStyle) -> str:
+    if style.uppercase:
+        return text.upper()
+    return text
+
+
 def _render_chunk_text(chunk: list[Word], highlight_idx: int, style: SubtitleStyle) -> str:
     parts: list[str] = []
     for i, word in enumerate(chunk):
+        token = _transform_text(word.text, style)
         if i == highlight_idx:
-            parts.append(rf"{{\c{style.highlight_color}}}{word.text}{{\c{style.primary_color}}}")
+            # Active word: yellow color + slight scale pop ("\fscx115\fscy115").
+            parts.append(
+                rf"{{\c{style.highlight_color}\fscx115\fscy115}}"
+                rf"{token}"
+                rf"{{\c{style.primary_color}\fscx100\fscy100}}"
+            )
         else:
-            parts.append(word.text)
+            parts.append(token)
     return " ".join(parts)
 
 
@@ -84,9 +134,20 @@ def build_ass(
     style: SubtitleStyle,
     render: RenderConfig,
 ) -> str:
-    """Build the full .ass file contents for the given word-level timings."""
+    r"""Build the full .ass file contents for the given word-level timings.
+
+    Each Dialogue line is prefixed with an absolute ``\pos(x,y)`` tag so
+    the caption is anchored at the same on-screen coordinates regardless
+    of how the local libass build interprets Alignment+MarginV. ``y`` is
+    computed from ``style.vertical_position`` (0.0 = top, 1.0 = bottom of
+    frame).
+    """
     chunks = _chunk_words(words, max_per_chunk=style.max_words_per_chunk)
     lines = [_build_header(style, render)]
+
+    pos_x = render.width // 2
+    pos_y = int(render.height * style.vertical_position)
+    pos_tag = rf"{{\an5\pos({pos_x},{pos_y})}}"
 
     for chunk in chunks:
         if not chunk:
@@ -101,7 +162,7 @@ def build_ass(
             text = _render_chunk_text(chunk, highlight_idx=idx, style=style)
             line = (
                 f"Dialogue: 0,{_format_time(seg_start)},{_format_time(seg_end)},"
-                f"Pop,,0,0,0,,{text}"
+                f"Pop,,0,0,0,,{pos_tag}{text}"
             )
             lines.append(line)
     return "\n".join(lines) + "\n"

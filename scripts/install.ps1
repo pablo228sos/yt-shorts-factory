@@ -13,10 +13,30 @@
 
 [CmdletBinding()]
 param(
-    [switch]$SkipGameplayDownload
+    [switch]$SkipGameplayDownload,
+    [switch]$SkipAsmrDownload,
+    [switch]$SkipSfxSynthesis,
+    [switch]$SkipKokoro,
+    [switch]$SkipRender,
+    [string]$Subreddit = 'AmItheAsshole'
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Invoke-Tolerant([string]$Label, [scriptblock]$Action) {
+    # Big media downloads regularly trip on flaky home Wi-Fi. We don't
+    # want a single transient failure to abort the whole install — the
+    # pipeline already degrades gracefully when caches are missing, and
+    # the user can re-run the step later. Just warn and continue.
+    try {
+        & $Action
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host ("!! {0} exited with code {1}; continuing." -f $Label, $LASTEXITCODE) -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host ("!! {0} failed: {1}. Continuing without it; re-run later when online." -f $Label, $_.Exception.Message) -ForegroundColor Yellow
+    }
+}
 
 function Test-Command([string]$Name) {
     return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
@@ -74,19 +94,63 @@ if (-not (Test-Path $venvPython)) {
 }
 
 # ---------- pip install ----------
-Write-Host ">> Installing package..." -ForegroundColor Cyan
+Write-Host ">> Installing package (with Kokoro TTS unless -SkipKokoro)..." -ForegroundColor Cyan
 & $venvPython -m pip install --upgrade pip
-& $venvPython -m pip install -e ".[dev]"
+if ($SkipKokoro) {
+    & $venvPython -m pip install -e ".[dev]"
+} else {
+    & $venvPython -m pip install -e ".[dev,kokoro]"
+}
+
+# ---------- Kokoro TTS model (default-on) ----------
+if (-not $SkipKokoro) {
+    Write-Host ">> Downloading Kokoro model (~310 MB, one-time)..." -ForegroundColor Cyan
+    Invoke-Tolerant 'Kokoro model download' { & $venvPython -m yt_shorts_factory.cli download-tts-models }
+}
+
+# ---------- synthesize SFX library ----------
+if (-not $SkipSfxSynthesis) {
+    Write-Host ">> Synthesizing default SFX library (vine boom / ding / whoosh / suspense)..." -ForegroundColor Cyan
+    Invoke-Tolerant 'SFX synthesis' { & $venvPython -m yt_shorts_factory.cli synthesize-sfx }
+}
 
 # ---------- pre-cache gameplay ----------
 if (-not $SkipGameplayDownload) {
-    Write-Host ">> Pre-downloading default gameplay sources (this can take a few minutes)..." -ForegroundColor Cyan
-    & $venvPython -m yt_shorts_factory.cli download-gameplay
+    Write-Host ">> Pre-downloading default gameplay sources (~5-10 GB, this can take a while)..." -ForegroundColor Cyan
+    Invoke-Tolerant 'Gameplay pre-cache' { & $venvPython -m yt_shorts_factory.cli download-gameplay --kind gameplay }
+}
+
+# ---------- pre-cache ASMR overlay sources ----------
+if (-not $SkipAsmrDownload) {
+    Write-Host ">> Pre-downloading ASMR/cooking overlay sources (~2-3 GB)..." -ForegroundColor Cyan
+    Invoke-Tolerant 'ASMR pre-cache' { & $venvPython -m yt_shorts_factory.cli download-gameplay --kind asmr }
+}
+
+# ---------- smoke-test render so the user immediately has an mp4 ----------
+if (-not $SkipRender) {
+    Write-Host ""
+    Write-Host ">> Rendering your first Short from r/$Subreddit ..." -ForegroundColor Cyan
+    Invoke-Tolerant 'Smoke render' { & $venvPython -m yt_shorts_factory.cli generate-cmd --subreddit $Subreddit -v }
+    if (Test-Path 'out') {
+        $latest = Get-ChildItem -Path 'out' -Filter *.mp4 -ErrorAction SilentlyContinue |
+                  Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($latest) {
+            Write-Host ""
+            Write-Host (">> First Short ready: {0}" -f $latest.FullName) -ForegroundColor Green
+            try { Start-Process explorer.exe ('/select,' + $latest.FullName) | Out-Null } catch {}
+        }
+    }
 }
 
 Write-Host ""
 Write-Host ">> Done!" -ForegroundColor Green
-Write-Host "Activate the venv with:"
-Write-Host "    .\.venv\Scripts\Activate.ps1"
-Write-Host "Then try a generation:"
-Write-Host "    yt-shorts-factory generate-cmd --subreddit AmItheAsshole -v"
+Write-Host ""
+Write-Host "Render another Short (one command):" -ForegroundColor Cyan
+Write-Host "    .venv\Scripts\yt-shorts-factory.exe generate-cmd --subreddit AmItheAsshole -v"
+Write-Host ""
+Write-Host "Non-stop batch (rotates subs + B-roll, dedups):" -ForegroundColor Cyan
+Write-Host "    .venv\Scripts\yt-shorts-factory.exe batch --count 10 -v"
+Write-Host ""
+Write-Host "Activate the venv to drop the .venv\Scripts\ prefix:" -ForegroundColor DarkGray
+Write-Host "  cmd.exe       :   .venv\Scripts\activate.bat"
+Write-Host "  PowerShell    :   .\.venv\Scripts\Activate.ps1"

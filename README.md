@@ -1,30 +1,38 @@
 # yt-shorts-factory
 
 Fully-automated YouTube Shorts factory. Pulls a top story from Reddit
-(e.g. `r/AmItheAsshole`), narrates it with Microsoft Edge's neural TTS,
+(e.g. `r/AmItheAsshole`), rewrites the title into a retention hook,
+narrates it with Microsoft Edge's neural TTS (or local Kokoro-82M),
 re-transcribes the narration with `faster-whisper` for word-perfect
-caption timing, generates TikTok-style "pop word" subtitles, lays it
-over Minecraft Parkour / Subway Surfers B-roll, and renders a 1080×1920
-mp4 — all in one CLI command.
+caption timing, renders TikTok-style "pop word" subtitles (1-3 words,
+Bebas Neue, ALL CAPS, yellow highlight), lays the whole thing over
+Minecraft Parkour / Subway Surfers B-roll at 1080p source (sharp, not
+upscaled), mixes in vine-boom / ding / whoosh SFX placed by the script
+content, optionally ducks a music bed under the voice, and renders a
+1080×1920 mp4 — all in one CLI command.
 
 No paid APIs. No OAuth. Just `pip install` and a few mp4s.
+
+## Docs
+
+| File | What's in it |
+|---|---|
+| [CAPABILITIES.md](CAPABILITIES.md) | Full feature list — what every module does today |
+| [ROADMAP.md](ROADMAP.md) | What's shipped, in progress, and planned (split by stage) |
+| [RESEARCH.md](RESEARCH.md) | Design rationale — why each default exists (hook, voice, captions, ASMR strip, etc.) |
+| [LICENSE](LICENSE) | MIT |
 
 ## Pipeline
 
 ```
-Reddit JSON → text cleaner → Edge TTS → faster-whisper word timings
-            → .ass subtitles → ffmpeg compose → out/<id>_<slug>.mp4
+Reddit JSON ─► text cleaner ─► hook rewriter ─► niche profile ─► TTS
+            ─► faster-whisper word timings (rescaled for atempo)
+            ─► SFX placer (?, !, scene markers)
+            ─► .ass subtitles ─► ffmpeg compose ─► out/<id>_<slug>.mp4
 ```
 
-| Stage | Module | Default |
-|---|---|---|
-| Story source | `sources/reddit.py` | `r/AmItheAsshole`, top of day |
-| Text cleaner | `script/cleaner.py` | Strips URLs/edits, expands AITA jargon, censors profanity |
-| TTS | `tts/edge.py` | `en-US-GuyNeural` via `edge-tts` (free) |
-| Transcription | `transcribe/whisper.py` | `faster-whisper` base model, int8 CPU |
-| Subtitles | `render/subtitles.py` | Karaoke-style .ass, 3 words/chunk, yellow highlight |
-| B-roll | `assets/gameplay.py` | Auto-download Minecraft Parkour / Subway Surfers via `yt-dlp`, slice random 90 s segments |
-| Composer | `render/composer.py` | ffmpeg, 1080×1920 @ 30 fps, audio ducking |
+See [CAPABILITIES.md §Pipeline diagram](CAPABILITIES.md#pipeline-diagram)
+for the full module map.
 
 ## Install
 
@@ -41,16 +49,26 @@ scripts\install.bat
 `install.bat` is a thin wrapper that hands off to `install.ps1` with the
 right execution policy, so you do not need to switch to PowerShell or run
 `Set-ExecutionPolicy` yourself. The installer pulls `ffmpeg` and Python
-3.12 via `winget`, sets up `.venv`, installs the package, and
-pre-downloads the default gameplay sources. Pass `-SkipGameplayDownload`
-to skip the last step.
+3.12 via `winget`, sets up `.venv`, installs the package, pre-downloads
+the default gameplay sources, and synthesizes the default SFX library
+(vine boom, ding, whoosh, suspense — all generated locally by ffmpeg, no
+downloads, no licensing concerns).
 
-If you are already in PowerShell you can call the script directly:
+After the install finishes, activate the venv:
 
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\scripts\install.ps1
+```cmd
+:: cmd.exe
+.venv\Scripts\activate.bat
+
+:: PowerShell
+.\.venv\Scripts\Activate.ps1
 ```
+
+Flags:
+- `-SkipGameplayDownload` — skip the ~5 GB gameplay pull
+- `-SkipSfxSynthesis` — skip the (instant) SFX synthesis
+- `-WithKokoro` — also install `kokoro-onnx` and download the local Kokoro
+  TTS model (~310 MB). Optional; Edge TTS is the free default.
 
 ### Linux / macOS
 
@@ -64,10 +82,11 @@ cd yt-shorts-factory
 
 ```bash
 pip install -e ".[dev]"
-# Linux:  sudo apt-get install -y ffmpeg
-# macOS:  brew install ffmpeg
+# Linux:   sudo apt-get install -y ffmpeg
+# macOS:   brew install ffmpeg
 # Windows: winget install --id Gyan.FFmpeg -e
 yt-shorts-factory download-gameplay   # populate cache/gameplay/sources/
+yt-shorts-factory synthesize-sfx      # generate the default SFX library
 ```
 
 **Python 3.11 or 3.12 is required** — `faster-whisper` does not yet ship
@@ -99,15 +118,30 @@ yt-shorts-factory generate-cmd \
   --subreddit AmItheAsshole \
   --gameplay cache/gameplay/sources/parkour.mp4 \
   --output-dir out
-```
 
-```bash
-# Just see which stories pass the filters
+# High-quality local TTS via Kokoro (~310 MB model, runs on CPU).
+yt-shorts-factory generate-cmd --subreddit nosleep --tts kokoro
+
+# Just see which stories pass the filters.
 yt-shorts-factory list-stories --subreddit AmItheAsshole --limit 10
+
+# Drop in your own royalty-free music (per-niche under drama/, horror/, …).
+yt-shorts-factory generate-cmd --subreddit confession --music-dir cache/music
 ```
 
 Outputs land in `out/<post_id>_<slugified-title>.mp4` plus an intermediate
 work directory under `cache/work/`.
+
+### Niche profiles
+
+The `--niche` flag (default `auto`) picks per-subreddit voice / music
+mood / hook style / SFX intensity. See
+[CAPABILITIES.md §Niche profiles](CAPABILITIES.md#9-niche-profiles) for
+the full mapping.
+
+Pass `--niche horror` to force, or `--niche none` to disable overrides.
+Any explicit CLI flag (`--voice`, `--speedup`, `--hook-style`) wins
+over the niche profile default.
 
 ## Custom config
 
@@ -116,11 +150,16 @@ Pass `--config config.json` with anything you want to override. Example:
 ```json
 {
   "reddit":    { "subreddit": "EntitledParents", "min_chars": 800 },
-  "tts":       { "voice": "en-US-JennyNeural", "rate": "+12%" },
-  "subtitles": { "max_words_per_chunk": 2, "vertical_position": 0.5 },
-  "gameplay":  { "local_files": ["cache/gameplay/parkour.mp4"] }
+  "tts":       { "backend": "kokoro" },
+  "hook":      { "style": "cliffhanger", "drop_original_title": true },
+  "subtitles": { "max_words_per_chunk": 2, "vertical_position": 0.50, "uppercase": true },
+  "sfx":       { "enabled": true, "max_sfx_per_video": 8 },
+  "music":     { "enabled": true, "music_dir": "cache/music" },
+  "gameplay":  { "preferred_height": 1080, "local_files": ["cache/gameplay/parkour.mp4"] }
 }
 ```
+
+Every field is documented in `src/yt_shorts_factory/config.py`.
 
 ## Tests
 
@@ -130,7 +169,8 @@ mypy
 pytest
 ```
 
-CI runs all three on every push (`.github/workflows/ci.yml`).
+CI runs all three on every push — see
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ## YouTube monetization notes
 
@@ -139,9 +179,10 @@ that publish AI-generated content with no transformative human input.
 **Treat this tool as a draft generator, not an auto-uploader.** Before
 publishing:
 
-- Review and edit the script per video (10–15 seconds of work).
+- Review and edit the script per video (10-15 seconds of work).
 - Add a unique hook in the first 1.5 seconds.
 - Vary voices, B-roll, and aspect framing.
 - Don't run multiple channels off the same exact pipeline.
 
-A future `upload` module is intentionally not included yet.
+See [RESEARCH.md §10 The "inauthentic content" minefield](RESEARCH.md#10-the-inauthentic-content-minefield)
+for the full rationale.
