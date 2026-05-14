@@ -139,8 +139,12 @@ class KokoroConfig(BaseModel):
     male_voices: list[str] = Field(
         default_factory=lambda: ["am_michael", "am_adam", "am_eric"]
     )
+    # ``af_nicole`` is intentionally excluded: it is Kokoro's deliberately
+    # breathy / ASMR-style voice and renders narration as a whisper,
+    # which made one user-test video unlistenable. The remaining four
+    # voices are full-bodied narrator tones suitable for story content.
     female_voices: list[str] = Field(
-        default_factory=lambda: ["af_heart", "af_bella", "af_nicole", "af_sarah"]
+        default_factory=lambda: ["af_bella", "af_heart", "af_sarah", "af_aoede"]
     )
     speed: float = 1.0  # in-model speed; we additionally apply ``audio_speedup`` later
     lang: str = "en-us"
