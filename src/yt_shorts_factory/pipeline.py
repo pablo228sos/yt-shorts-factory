@@ -268,14 +268,25 @@ def generate(
     log.info("Picking gameplay clip")
     gameplay_path = gameplay_module.pick_clip(cfg.gameplay, rng=rng)
 
-    # Optional ASMR / cooking overlay for the bottom half of the split-screen.
+    # Optional picture-in-picture ASMR / cooking overlay.
     asmr_path: Path | None = None
-    asmr_height = 0
+    asmr_pip: composer_module.PipLayout | None = None
     if cfg.asmr.enabled:
         asmr_path = asmr_module.pick_clip(cfg.asmr, rng=rng)
         if asmr_path is not None:
-            asmr_height = cfg.asmr.asmr_height
-            log.info("ASMR overlay: %s (bottom %dpx)", asmr_path.name, asmr_height)
+            asmr_pip = composer_module.PipLayout(
+                width=cfg.asmr.pip_width,
+                height=cfg.asmr.pip_height,
+                y=cfg.asmr.pip_y,
+                x=cfg.asmr.pip_x,
+            )
+            log.info(
+                "ASMR overlay: %s (PiP %dx%d @ y=%d)",
+                asmr_path.name,
+                asmr_pip.width,
+                asmr_pip.height,
+                asmr_pip.y,
+            )
 
     output_path = cfg.output_dir / f"{story.id}_{slug}.mp4"
     log.info("Composing final video -> %s", output_path)
@@ -291,7 +302,7 @@ def generate(
         music_base_db=cfg.music.base_volume_db,
         music_sidechain=True,
         asmr_path=asmr_path,
-        asmr_height=asmr_height,
+        asmr_pip=asmr_pip,
     )
 
     # Record the post in the dedup db so future batches skip it.

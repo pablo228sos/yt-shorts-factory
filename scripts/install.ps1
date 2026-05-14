@@ -14,8 +14,9 @@
 [CmdletBinding()]
 param(
     [switch]$SkipGameplayDownload,
+    [switch]$SkipAsmrDownload,
     [switch]$SkipSfxSynthesis,
-    [switch]$WithKokoro
+    [switch]$SkipKokoro
 )
 
 $ErrorActionPreference = 'Stop'
@@ -76,14 +77,18 @@ if (-not (Test-Path $venvPython)) {
 }
 
 # ---------- pip install ----------
-Write-Host ">> Installing package..." -ForegroundColor Cyan
+Write-Host ">> Installing package (with Kokoro TTS unless -SkipKokoro)..." -ForegroundColor Cyan
 & $venvPython -m pip install --upgrade pip
-& $venvPython -m pip install -e ".[dev]"
+if ($SkipKokoro) {
+    & $venvPython -m pip install -e ".[dev]"
+} else {
+    & $venvPython -m pip install -e ".[dev,kokoro]"
+}
 
-# ---------- pre-cache gameplay ----------
-if (-not $SkipGameplayDownload) {
-    Write-Host ">> Pre-downloading default gameplay sources (this can take a few minutes)..." -ForegroundColor Cyan
-    & $venvPython -m yt_shorts_factory.cli download-gameplay
+# ---------- Kokoro TTS model (default-on) ----------
+if (-not $SkipKokoro) {
+    Write-Host ">> Downloading Kokoro model (~310 MB, one-time)..." -ForegroundColor Cyan
+    & $venvPython -m yt_shorts_factory.cli download-tts-models
 }
 
 # ---------- synthesize SFX library ----------
@@ -92,24 +97,27 @@ if (-not $SkipSfxSynthesis) {
     & $venvPython -m yt_shorts_factory.cli synthesize-sfx
 }
 
-# ---------- optional Kokoro TTS download ----------
-if ($WithKokoro) {
-    Write-Host ">> Installing kokoro-onnx + soundfile..." -ForegroundColor Cyan
-    & $venvPython -m pip install kokoro-onnx soundfile
-    Write-Host ">> Downloading Kokoro model (~310 MB, one-time)..." -ForegroundColor Cyan
-    & $venvPython -m yt_shorts_factory.cli download-tts-models
+# ---------- pre-cache gameplay ----------
+if (-not $SkipGameplayDownload) {
+    Write-Host ">> Pre-downloading default gameplay sources (~5-10 GB, this can take a while)..." -ForegroundColor Cyan
+    & $venvPython -m yt_shorts_factory.cli download-gameplay --kind gameplay
+}
+
+# ---------- pre-cache ASMR overlay sources ----------
+if (-not $SkipAsmrDownload) {
+    Write-Host ">> Pre-downloading ASMR/cooking overlay sources..." -ForegroundColor Cyan
+    & $venvPython -m yt_shorts_factory.cli download-gameplay --kind asmr
 }
 
 Write-Host ""
 Write-Host ">> Done!" -ForegroundColor Green
-Write-Host "Activate the venv:" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Render your first Short (one command):" -ForegroundColor Cyan
+Write-Host "    .venv\Scripts\yt-shorts-factory.exe generate-cmd --subreddit AmItheAsshole -v"
+Write-Host ""
+Write-Host "Or non-stop batch (rotates subs + B-roll, dedups):" -ForegroundColor Cyan
+Write-Host "    .venv\Scripts\yt-shorts-factory.exe batch --count 10 -v"
+Write-Host ""
+Write-Host "Activate the venv to drop the .venv\Scripts\ prefix:" -ForegroundColor DarkGray
 Write-Host "  cmd.exe       :   .venv\Scripts\activate.bat"
 Write-Host "  PowerShell    :   .\.venv\Scripts\Activate.ps1"
-Write-Host ""
-Write-Host "Then try a generation:" -ForegroundColor Cyan
-Write-Host "    yt-shorts-factory generate-cmd --subreddit AmItheAsshole -v"
-if (-not $WithKokoro) {
-    Write-Host ""
-    Write-Host "To use the high-quality local Kokoro TTS later, run:" -ForegroundColor DarkGray
-    Write-Host "    .\scripts\install.ps1 -WithKokoro -SkipGameplayDownload" -ForegroundColor DarkGray
-}

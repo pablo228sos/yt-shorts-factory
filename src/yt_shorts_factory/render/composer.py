@@ -19,10 +19,30 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 from yt_shorts_factory.assets.sfx import SfxClip
 from yt_shorts_factory.config import RenderConfig
+
+
+@dataclass(frozen=True)
+class PipLayout:
+    """Geometry for a picture-in-picture overlay inside the 9:16 canvas.
+
+    ``x`` may be ``None`` to auto-center horizontally given the parent
+    width.
+    """
+
+    width: int
+    height: int
+    y: int
+    x: int | None = None
+
+    def resolved_x(self, parent_width: int) -> int:
+        if self.x is None:
+            return max(0, (parent_width - self.width) // 2)
+        return self.x
 
 
 def _ffprobe_duration(path: Path) -> float:
@@ -87,35 +107,35 @@ def _build_filter_graph(
     music_base_db: float,
     music_sidechain: bool,
     asmr_idx: int | None = None,
-    asmr_height: int = 0,
+    asmr_pip: PipLayout | None = None,
 ) -> str:
     """Assemble the -filter_complex string.
 
-    When ``asmr_idx`` is set the video is rendered as a vertical
-    split-screen: the top ``cfg.height - asmr_height`` pixels show the
-    gameplay B-roll and the bottom ``asmr_height`` pixels show the muted
-    ASMR clip. Subtitles are burned over the combined frame.
+    When ``asmr_idx`` and ``asmr_pip`` are set, the gameplay B-roll fills
+    the full 9:16 frame and the muted ASMR clip is composited as a
+    smaller picture-in-picture window per ``asmr_pip``. Subtitles are
+    burned over the combined frame so they stay readable above the PiP.
     """
     scale_flags = cfg.scale_flags
-    if asmr_idx is not None and asmr_height > 0:
-        top_h = cfg.height - asmr_height
-        vf_parts = [
-            f"[0:v]scale={cfg.width}:{top_h}:"
+    bg_parts = [
+        f"[0:v]scale={cfg.width}:{cfg.height}:"
+        f"force_original_aspect_ratio=increase:flags={scale_flags},"
+        f"crop={cfg.width}:{cfg.height},setsar=1,fps={cfg.fps}[bg]",
+    ]
+    if asmr_idx is not None and asmr_pip is not None:
+        pip_x = asmr_pip.resolved_x(cfg.width)
+        bg_parts.append(
+            f"[{asmr_idx}:v]scale={asmr_pip.width}:{asmr_pip.height}:"
             f"force_original_aspect_ratio=increase:flags={scale_flags},"
-            f"crop={cfg.width}:{top_h},setsar=1,fps={cfg.fps}[top]",
-            f"[{asmr_idx}:v]scale={cfg.width}:{asmr_height}:"
-            f"force_original_aspect_ratio=increase:flags={scale_flags},"
-            f"crop={cfg.width}:{asmr_height},setsar=1,fps={cfg.fps}[bot]",
-            "[top][bot]vstack=inputs=2[bg]",
-            f"[bg]subtitles='{subs_arg}'[v]",
-        ]
+            f"crop={asmr_pip.width}:{asmr_pip.height},setsar=1,fps={cfg.fps}[pip]"
+        )
+        bg_parts.append(
+            f"[bg][pip]overlay=x={pip_x}:y={asmr_pip.y}:shortest=0[bg2]"
+        )
+        bg_parts.append(f"[bg2]subtitles='{subs_arg}'[v]")
     else:
-        vf_parts = [
-            f"[0:v]scale={cfg.width}:{cfg.height}:"
-            f"force_original_aspect_ratio=increase:flags={scale_flags},"
-            f"crop={cfg.width}:{cfg.height},setsar=1,fps={cfg.fps}[bg]",
-            f"[bg]subtitles='{subs_arg}'[v]",
-        ]
+        bg_parts.append(f"[bg]subtitles='{subs_arg}'[v]")
+    vf_parts = bg_parts
 
     audio_parts: list[str] = []
 
@@ -185,12 +205,13 @@ def compose(
     music_base_db: float = -22.0,
     music_sidechain: bool = True,
     asmr_path: Path | None = None,
-    asmr_height: int = 0,
+    asmr_pip: PipLayout | None = None,
 ) -> Path:
     """Render the final Short. Returns ``output_path`` on success.
 
-    When ``asmr_path`` is provided the video is rendered as a vertical
-    split-screen (top: gameplay, bottom: muted ASMR).
+    When ``asmr_path`` and ``asmr_pip`` are provided, the ASMR clip is
+    overlaid as a small picture-in-picture window over the full-frame
+    gameplay background (see ``PipLayout``).
     """
     _ensure_ffmpeg()
     if not gameplay_path.exists():
@@ -224,7 +245,7 @@ def compose(
         music_idx = next_idx
         next_idx += 1
 
-    if asmr_path is not None and asmr_path.exists() and asmr_height > 0:
+    if asmr_path is not None and asmr_path.exists() and asmr_pip is not None:
         # ``-an`` here would apply to the *entire* compose call; instead
         # we just ignore the ASMR audio stream by never mapping it into
         # the audio graph. -stream_loop lets it cover long narrations.
@@ -252,7 +273,7 @@ def compose(
         music_base_db=music_base_db,
         music_sidechain=music_sidechain,
         asmr_idx=asmr_idx,
-        asmr_height=asmr_height if asmr_idx is not None else 0,
+        asmr_pip=asmr_pip if asmr_idx is not None else None,
     )
 
     cmd: list[str] = ["ffmpeg", "-y", *inputs, "-filter_complex", filter_graph]

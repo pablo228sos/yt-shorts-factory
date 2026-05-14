@@ -11,6 +11,7 @@ import pytest
 from yt_shorts_factory.assets.sfx import SfxClip
 from yt_shorts_factory.config import RenderConfig
 from yt_shorts_factory.render.composer import (
+    PipLayout,
     _build_filter_graph,
     _clamp_atempo,
     compose,
@@ -99,6 +100,41 @@ def test_build_filter_graph_with_sfx_and_music() -> None:
     # SFX delays should include the intro padding (5.0 + 0.15 = 5150 ms).
     assert "adelay=5150:all=1" in graph
     assert "adelay=20150:all=1" in graph
+
+
+def test_build_filter_graph_asmr_pip_overlay() -> None:
+    """With an ASMR PiP layout, gameplay covers the full frame and ASMR is
+    composited via overlay (not vstack)."""
+    pip = PipLayout(width=720, height=540, y=1230, x=None)
+    graph = _build_filter_graph(
+        cfg=RenderConfig(),
+        subs_arg="subs.ass",
+        speedup=1.0,
+        duration_s=60.0,
+        voice_idx=1,
+        music_idx=None,
+        sfx_clips=[],
+        intro_padding_s=0.15,
+        music_base_db=-22.0,
+        music_sidechain=False,
+        asmr_idx=2,
+        asmr_pip=pip,
+    )
+    # Gameplay must fill the full canvas, not be downscaled to half height.
+    assert f"scale={RenderConfig().width}:{RenderConfig().height}" in graph
+    # No vstack — PiP is an overlay.
+    assert "vstack" not in graph
+    # Overlay should be horizontally centered ((1080-720)/2 = 180).
+    assert "overlay=x=180:y=1230" in graph
+    # Subtitles still burned over the composed background.
+    assert "subtitles='subs.ass'" in graph
+
+
+def test_pip_layout_resolved_x_centers_when_none() -> None:
+    pip = PipLayout(width=720, height=540, y=1230, x=None)
+    assert pip.resolved_x(1080) == 180
+    explicit = PipLayout(width=720, height=540, y=1230, x=50)
+    assert explicit.resolved_x(1080) == 50
 
 
 def test_compose_invokes_ffmpeg_with_expected_args(tmp_path: Path) -> None:

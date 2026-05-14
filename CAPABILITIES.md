@@ -11,8 +11,9 @@ BORU, JustNoMIL, survivinginfidelity, raisedbynarcissists, nosleep,
 TwoSentenceHorror, TrueOffMyChest, …), narrates it with the best-rated
 open-source TTS (Kokoro-82M) using a voice that auto-matches the
 narrator's gender, transcribes back into word-perfect captions, lays
-everything over real 1080p gameplay **plus** a muted ASMR / cooking /
-soap-cutting strip in the bottom half for retention, mixes in sound
+everything over real 1080p gameplay **plus** a smaller muted ASMR /
+cooking / soap-cutting picture-in-picture window below the captions
+for retention, mixes in sound
 effects placed by content cues, optionally ducks music under the voice,
 and writes a 1080×1920 mp4 ready for YouTube Shorts / TikTok / Reels.
 
@@ -50,8 +51,8 @@ file is missing.
             |
             v
        ffmpeg compose
-          - top  : gameplay 1080p (rotated, no back-to-back repeats)
-          - bot  : ASMR / cooking 1080x960 (muted, vstack)
+          - bg   : gameplay 1080x1920 full-frame (rotated, no back-to-back repeats)
+          - pip  : ASMR / cooking 720x540 overlay, centered, below subtitles (muted)
           - mix  : voice + SFX + ducked music + ducked gameplay audio
             |
             v
@@ -158,7 +159,7 @@ file is missing.
 | Base volume control | ✓ | `MusicConfig.base_volume_db` |  |
 | Disable globally | ✓ | `--music-dir` empty or missing dir |  |
 
-## 8. B-roll (gameplay top half + ASMR bottom half)
+## 8. B-roll (full-frame gameplay + ASMR picture-in-picture)
 
 ### Gameplay (top)
 
@@ -180,14 +181,14 @@ file is missing.
 
 | Feature | Status | Module | Notes |
 |---|---|---|---|
-| **Split-screen render** | ✓ | `composer._build_filter_graph` | Top: gameplay (W × (H - asmr_height)); bottom: ASMR (W × asmr_height); vstacked |
+| **Picture-in-picture render** | ✓ | `composer._build_filter_graph` | Gameplay fills the full 1080x1920 canvas; ASMR scaled to `pip_width` x `pip_height` and overlaid at `(pip_x, pip_y)` below subtitles |
 | ASMR audio muted | ✓ | composer skips mapping ASMR audio | Voice + music + SFX bus stays clean |
 | Default sources: soap cutting / cooking / kinetic sand / glass cutting | ✓ | `_DEFAULT_ASMR_SOURCES` | `ytsearch1:` queries, kept current with content |
 | Separate cache `cache/asmr/` | ✓ | `AsmrConfig.cache_dir` | Won't collide with gameplay cache |
 | `download-gameplay --kind asmr` | ✓ | `cli.py` | Pre-fetches every ASMR source |
 | Rotated independently of gameplay | ✓ | shared `_RECENT_SEGMENTS` memory | ASMR clips also don't repeat back-to-back |
 | Toggle on/off | ✓ | `--asmr / --no-asmr` |  |
-| Adjustable height | ✓ | `AsmrConfig.asmr_height` | Default 960 (50% of 1920) |
+| Adjustable PiP geometry | ✓ | `AsmrConfig.pip_width` / `pip_height` / `pip_x` / `pip_y` | Defaults: 720×540, auto-centered horizontally, y=1230 (just below captions at vertical_position=0.55) |
 
 ## 9. Niche profiles
 

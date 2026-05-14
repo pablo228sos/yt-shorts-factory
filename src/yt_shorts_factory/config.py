@@ -177,14 +177,14 @@ class SubtitleStyle(BaseModel):
     font_fallback: list[str] = Field(
         default_factory=lambda: ["Impact", "Anton", "Oswald", "Arial Black", "Arial"]
     )
-    font_size: int = 110
+    font_size: int = 150
     bold: bool = True
     uppercase: bool = True
     primary_color: str = "&H00FFFFFF"  # white
     highlight_color: str = "&H0000F0FF"  # warm yellow
     outline_color: str = "&H00000000"  # black
-    outline_width: int = 6
-    shadow: int = 3
+    outline_width: int = 2
+    shadow: int = 0
     max_words_per_chunk: int = 3
     vertical_position: float = 0.55  # 0.0 = top, 1.0 = bottom
 
@@ -266,13 +266,15 @@ class GameplayConfig(BaseModel):
 
 
 class AsmrConfig(BaseModel):
-    """Bottom-half satisfying/ASMR overlay.
+    """Picture-in-picture ASMR / cooking / soap-carving overlay.
 
-    When ``enabled=True`` the composer renders a split-screen 9:16: the
-    top half is the regular gameplay B-roll (1080x960) and the bottom
-    half is a muted ASMR / cooking / soap-carving clip (1080x960). The
-    audio track is muted because the narrator + music already occupy the
-    audio bus; ASMR plays as a purely visual element.
+    When ``enabled=True`` the composer renders the gameplay B-roll at
+    full 9:16 frame and overlays a smaller ASMR window below the
+    subtitles. The ASMR audio is muted (narrator + music already
+    occupy the audio bus). The window position is fixed in the 1080x1920
+    canvas via ``pip_width``/``pip_height``/``pip_x``/``pip_y``; the
+    defaults place a 720x540 window centered horizontally just under the
+    captions at ``vertical_position=0.55``.
 
     ``sources`` follows the same yt-dlp resolution as gameplay; clips are
     cached in ``cache_dir`` and reused / rotated across batches.
@@ -285,9 +287,14 @@ class AsmrConfig(BaseModel):
     segment_seconds: float = 90.0
     max_disk_mb: int = 4096
     preferred_height: int = 1080
-    # Bottom-half height in the split-screen layout. The gameplay fills
-    # the rest (RenderConfig.height - asmr_height).
-    asmr_height: int = 960
+    # PiP overlay geometry inside the 1080x1920 canvas.
+    pip_width: int = 720
+    pip_height: int = 540
+    # ``pip_x = None`` means auto-center horizontally.
+    pip_x: int | None = None
+    # Default Y leaves ~80 px below subtitles (which sit around y=1056
+    # when vertical_position=0.55 and font_size=150).
+    pip_y: int = 1230
     # When True, ASMR sources rotate across consecutive batch outputs.
     avoid_recent_repeats: bool = True
     cookies_from_browser: str | None = None

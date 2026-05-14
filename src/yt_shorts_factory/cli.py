@@ -173,7 +173,10 @@ def _apply_common_overrides(
         segment_seconds=cfg.asmr.segment_seconds,
         max_disk_mb=cfg.asmr.max_disk_mb,
         preferred_height=cfg.asmr.preferred_height,
-        asmr_height=cfg.asmr.asmr_height,
+        pip_width=cfg.asmr.pip_width,
+        pip_height=cfg.asmr.pip_height,
+        pip_x=cfg.asmr.pip_x,
+        pip_y=cfg.asmr.pip_y,
         avoid_recent_repeats=cfg.asmr.avoid_recent_repeats,
         cookies_from_browser=cfg.asmr.cookies_from_browser,
     )
